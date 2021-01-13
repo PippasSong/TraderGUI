@@ -1,5 +1,6 @@
 import sys
 import cx_Oracle
+import time
 
 from PyQt5.QtCore import *
 from PyQt5.QtWidgets import *
@@ -18,25 +19,26 @@ class WindowClass(QMainWindow, form_class):
         super().__init__()
         self.setupUi(self)
         self.g_scr_no = 0  # Open API 요청번호
+        self.g_user_id = None
+        self.g_accnt_no = None
 
         # 키움증권 클래스를 사용하기 위해 인스턴스 생성(ProgID를 사용)
         self.kiwoom = QAxWidget("KHOPENAPI.KHOpenAPICtrl.1")
-        # 로그인창 띄우기, OnEventConnect 이벤트 발생시킴
-        self.kiwoom.dynamicCall("CommConnect()")
-
-        self.text_edit = QTextEdit(self)
-        self.text_edit.setGeometry(10, 60, 280, 80)
-        self.text_edit.setEnabled(False)
 
         # 이벤트(oneventconnect)와 이벤트 처리 메소드 연결
-        self.kiwoom.OnEventConnect.connect(self.event_connect)
+        # self.kiwoom.OnEventConnect.connect(self.event_connect)
 
         self.statusBar.showMessage('Ready')
+        login_act = QAction('로그인', self)
+        login_act.triggered.connect(self.menu_login_act)
+        login_status = QAction('아이디 / 계좌정보 가져오기', self)
+        login_status.triggered.connect(self.menu_login_status)
+        self.menu_login.addAction(login_act)
+        self.menu_login.addAction(login_status)
 
     # 이벤트 처리 함수
     def event_connect(self, err_code):
         if err_code == 0:
-            self.text_edit.append("로그인 성공")
             self.write_msg_log("로그인 성공")
 
     # 현재시각 가져오기
@@ -93,6 +95,31 @@ class WindowClass(QMainWindow, form_class):
             self.g_scr_no = 1000
 
         return str(self.g_scr_no)
+
+    # 로그인 버튼 액션 메소드
+    def menu_login_act(self):
+        ret = self.kiwoom.dynamicCall("CommConnect()")  # 로그인창 띄우기, OnEventConnect 이벤트 발생시킴
+
+    # 계좌정보 가져오기 메소드
+    def menu_login_status(self):
+        accno = None  # 증권계좌번호
+        accno_cnt = None  # 소유한 증권계좌번호의 수
+        accno_arr = None  # N개의 증권계좌번호를 저장할 배열
+        if self.kiwoom.dynamicCall("GetConnectState()") == 1:  # 로그인 성공
+            self.g_user_id = self.kiwoom.dynamicCall("GetLoginInfo(QString)", ["USER_ID"])  # 반드시 리스트 형태로 값 전달하기
+            accno = self.kiwoom.dynamicCall("GetLoginInfo(QString)", ["ACCNO"]).strip()  # 전체 계좌를 반환, 구분은 ';'로 돼있음,
+            # 문자열 양 끝의 공백 제거
+            accno_arr = accno.split(';')
+            del accno_arr[len(accno_arr) - 1]  # 계좌리스트 마지막 공백 삭제
+
+            self.lineEdit.setText(self.g_user_id)  # ID입력
+
+            self.comboBox.clear()  # 콤보박스 초기화
+            self.comboBox.addItems(accno_arr)  # 계좌 입력
+            self.comboBox.setCurrentIndex(0)  # 첫번째 계좌번호를 콤보박스 초기 선택으로 설정
+            self.g_accnt_no = self.comboBox.currentText()  # 설정된 계좌번호를 필드에 저장
+        else:
+            self.statusBar.showMessage('로그인 필요')
 
 
 if __name__ == "__main__":
