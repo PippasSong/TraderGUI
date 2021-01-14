@@ -29,12 +29,23 @@ class WindowClass(QMainWindow, form_class):
         # self.kiwoom.OnEventConnect.connect(self.event_connect)
 
         self.statusBar.showMessage('Ready')
+
         login_act = QAction('로그인', self)
-        login_act.triggered.connect(self.menu_login_act)
+        login_act.triggered.connect(self.menu_login_act)  # 로그인 메소드 호출
         login_status = QAction('아이디 / 계좌정보 가져오기', self)
         login_status.triggered.connect(self.menu_login_status)
         self.menu_login.addAction(login_act)
         self.menu_login.addAction(login_status)
+
+        logout_act = QAction('로그아웃', self)
+        logout_act.triggered.connect(self.menu_logout_act)  # 로그아웃 메소드 호출
+        self.menu_logout.addAction(logout_act)
+
+        # 콤보박스에서 선택한 계좌번호를 현재 계좌번호로 설정
+        self.comboBox.currentIndexChanged.connect(self.comboBoxFunction)
+
+        a = QTableWidgetItem('aaa')
+        self.tableWidget.setItem(0, 0, a)
 
     # 이벤트 처리 함수
     def event_connect(self, err_code):
@@ -100,6 +111,11 @@ class WindowClass(QMainWindow, form_class):
     def menu_login_act(self):
         ret = self.kiwoom.dynamicCall("CommConnect()")  # 로그인창 띄우기, OnEventConnect 이벤트 발생시킴
 
+    # 로그아웃 버튼 액션 메소드
+    def menu_logout_act(self):
+        self.kiwoom.dynamicCall("CommTerminate()")  # 로그아웃
+        self.statusBar.showMessage('로그아웃')
+
     # 계좌정보 가져오기 메소드
     def menu_login_status(self):
         accno = None  # 증권계좌번호
@@ -121,6 +137,32 @@ class WindowClass(QMainWindow, form_class):
         else:
             self.statusBar.showMessage('로그인 필요')
 
+    # 콤보박스 선택시 수행
+    def comboBoxFunction(self):
+        self.g_accnt_no = str(self.comboBox.currentText())
+        self.write_msg_log("사용할 증권계좌번호는 %s 입니다." % self.g_accnt_no)
+
+    # dictinary 형태로 결과값 같기
+    def makeDictFactory(cursor):
+        columnNames = [d[0] for d in cursor.description]
+
+        def createRow(*args):
+            return dict(zip(columnNames, args))
+
+        return createRow
+
+    # 조회버튼 메소드
+    def pushbutton_clicked(self):
+        cur = self.connect_db().cursor()
+        cur.execute("select * from TB_TRD_JONGMOK")
+
+        cur.rowfactory = self.makeDictFactory(cur)
+
+        rows = cur.fetchall()
+
+        for row in rows:
+            jongmok_cd = row['JONGMOK_CD']
+
 
 if __name__ == "__main__":
     # QApplication : 프로그램을 실행시켜주는 클래스
@@ -128,7 +170,6 @@ if __name__ == "__main__":
 
     # WindowClass의 인스턴스 생성
     myWindow = WindowClass()
-    myWindow.write_msg_log("asdf")
 
     # 프로그램 화면을 보여주는 코드
     myWindow.show()

@@ -121,9 +121,25 @@
        <height>0</height>
       </size>
      </property>
+     <property name="editTriggers">
+      <set>QAbstractItemView::DoubleClicked</set>
+     </property>
      <property name="sortingEnabled">
       <bool>false</bool>
      </property>
+     <property name="rowCount">
+      <number>10</number>
+     </property>
+     <row/>
+     <row/>
+     <row/>
+     <row/>
+     <row/>
+     <row/>
+     <row/>
+     <row/>
+     <row/>
+     <row/>
      <column>
       <property name="text">
        <string>순번</string>
@@ -193,6 +209,19 @@
        <string>체크</string>
       </property>
      </column>
+     <item row="0" column="0">
+      <property name="text">
+       <string/>
+      </property>
+      <property name="flags">
+       <set>ItemIsSelectable|ItemIsEditable|ItemIsDragEnabled|ItemIsUserCheckable|ItemIsEnabled</set>
+      </property>
+     </item>
+     <item row="4" column="7">
+      <property name="text">
+       <string/>
+      </property>
+     </item>
     </widget>
     <widget class="QPushButton" name="pushButton">
      <property name="geometry">
