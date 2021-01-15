@@ -1,4 +1,5 @@
 import sys
+import os
 import cx_Oracle
 import time
 
@@ -9,8 +10,15 @@ from PyQt5.QtGui import *
 from PyQt5.QAxContainer import *
 
 # UI파일 연결
-# 단, UI파일은 Python 코드 파일과 같은 디렉토리에 위치해야한다.
+# UI파일은 Python 코드 파일과 같은 디렉토리에 위치해야한다.
 form_class = uic.loadUiType("untitled.ui")[0]
+
+# 오라클 DB 환경변수 등록
+LOCATION = r"C:\instantclient_19_9" # 32bit 버전 써야 한다
+os.environ["PATH"] = LOCATION + ";" + os.environ["PATH"]
+
+# 오라클 한글 지원
+os.putenv('NLS_LANG', '.UTF8')
 
 
 # 화면을 띄우는데 사용되는 Class 선언
@@ -44,8 +52,8 @@ class WindowClass(QMainWindow, form_class):
         # 콤보박스에서 선택한 계좌번호를 현재 계좌번호로 설정
         self.comboBox.currentIndexChanged.connect(self.comboBoxFunction)
 
-        a = QTableWidgetItem('aaa')
-        self.tableWidget.setItem(0, 0, a)
+        # 조회 버튼
+        self.pushButton.clicked.connect(self.pushbutton_clicked)
 
     # 이벤트 처리 함수
     def event_connect(self, err_code):
@@ -68,7 +76,7 @@ class WindowClass(QMainWindow, form_class):
     # 오라클 접속 연결 메소드
     def connect_db(self):
         dsn = cx_Oracle.makedsn("localhost", 1521, "xe")
-        db = cx_Oracle.connect("hr", "1234", dsn)
+        db = cx_Oracle.connect("ats", "1234", "localhost/1521")
 
         return db
 
@@ -143,7 +151,7 @@ class WindowClass(QMainWindow, form_class):
         self.write_msg_log("사용할 증권계좌번호는 %s 입니다." % self.g_accnt_no)
 
     # dictinary 형태로 결과값 같기
-    def makeDictFactory(cursor):
+    def makeDictFactory(self, cursor):
         columnNames = [d[0] for d in cursor.description]
 
         def createRow(*args):
@@ -153,15 +161,50 @@ class WindowClass(QMainWindow, form_class):
 
     # 조회버튼 메소드
     def pushbutton_clicked(self):
-        cur = self.connect_db().cursor()
+        conn = cx_Oracle.connect('ats', '1234', 'localhost:1521/xe', encoding='UTF-8', nencoding='UTF-8')
+        cur = conn.cursor()
         cur.execute("select * from TB_TRD_JONGMOK")
 
         cur.rowfactory = self.makeDictFactory(cur)
 
         rows = cur.fetchall()
 
+        # 초기화
+        row_num = 0
+        cul_num = 0
+        self.tableWidget.clear()
+
         for row in rows:
             jongmok_cd = row['JONGMOK_CD']
+            self.tableWidget.setItem(row_num, cul_num, QTableWidgetItem(jongmok_cd))
+            cul_num += 1
+            jongmok_nm = row['JONGMOK_NM']
+            self.tableWidget.setItem(row_num, cul_num, QTableWidgetItem(jongmok_nm))
+            cul_num += 1
+            priority = row['PRIORITY']
+            self.tableWidget.setItem(row_num, cul_num, QTableWidgetItem(priority))
+            cul_num += 1
+            buy_amt = row['BUY_AMT']
+            self.tableWidget.setItem(row_num, cul_num, QTableWidgetItem(buy_amt))
+            cul_num += 1
+            buy_price = row['BUY_PRICE']
+            self.tableWidget.setItem(row_num, cul_num, QTableWidgetItem(buy_price))
+            cul_num += 1
+            target_price = row['TARGET_PRICE']
+            self.tableWidget.setItem(row_num, cul_num, QTableWidgetItem(target_price))
+            cul_num += 1
+            cut_loss_price = row['CUT_LOSS_PRICE']
+            self.tableWidget.setItem(row_num, cul_num, QTableWidgetItem(cut_loss_price))
+            cul_num += 1
+            buy_trd_yn = row['BUY_TRD_YN']
+            self.tableWidget.setItem(row_num, cul_num, QTableWidgetItem(buy_trd_yn))
+            cul_num += 1
+            sell_trd_yn = row['SELL_TRD_YN']
+            self.tableWidget.setItem(row_num, cul_num, QTableWidgetItem(sell_trd_yn))
+            cul_num = 0
+            row_num += 1
+
+        self.write_msg_log('TB_TRD_JONGMOK 테이블이 조회되었습니다')
 
 
 if __name__ == "__main__":
