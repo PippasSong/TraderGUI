@@ -1,6 +1,7 @@
 import sys
 import os
 import cx_Oracle
+import datetime
 import time
 
 from PyQt5.QtCore import *
@@ -14,7 +15,7 @@ from PyQt5.QAxContainer import *
 form_class = uic.loadUiType("untitled.ui")[0]
 
 # 오라클 DB 환경변수 등록
-LOCATION = r"C:\instantclient_19_9" # 32bit 버전 써야 한다
+LOCATION = r"C:\instantclient_19_9"  # 32bit 버전 써야 한다
 os.environ["PATH"] = LOCATION + ";" + os.environ["PATH"]
 
 # 오라클 한글 지원
@@ -54,6 +55,9 @@ class WindowClass(QMainWindow, form_class):
 
         # 조회 버튼
         self.pushButton.clicked.connect(self.pushbutton_clicked)
+
+        # 삽입 버튼
+        self.pushButton_2.clicked.connect(self.pushbutton_2_clicked)
 
     # 이벤트 처리 함수
     def event_connect(self, err_code):
@@ -171,8 +175,8 @@ class WindowClass(QMainWindow, form_class):
 
         # 초기화
         row_num = 0
-        cul_num = 0
-        self.tableWidget.clear()
+        cul_num = 1
+        self.tableWidget.clearContents()  # 내용만 초기화
 
         for row in rows:
             jongmok_cd = row['JONGMOK_CD']
@@ -182,29 +186,79 @@ class WindowClass(QMainWindow, form_class):
             self.tableWidget.setItem(row_num, cul_num, QTableWidgetItem(jongmok_nm))
             cul_num += 1
             priority = row['PRIORITY']
-            self.tableWidget.setItem(row_num, cul_num, QTableWidgetItem(priority))
+            self.tableWidget.setItem(row_num, cul_num, QTableWidgetItem(str(priority)))
             cul_num += 1
             buy_amt = row['BUY_AMT']
-            self.tableWidget.setItem(row_num, cul_num, QTableWidgetItem(buy_amt))
+            self.tableWidget.setItem(row_num, cul_num, QTableWidgetItem(str(buy_amt)))
             cul_num += 1
             buy_price = row['BUY_PRICE']
-            self.tableWidget.setItem(row_num, cul_num, QTableWidgetItem(buy_price))
+            self.tableWidget.setItem(row_num, cul_num, QTableWidgetItem(str(buy_price)))
             cul_num += 1
             target_price = row['TARGET_PRICE']
-            self.tableWidget.setItem(row_num, cul_num, QTableWidgetItem(target_price))
+            self.tableWidget.setItem(row_num, cul_num, QTableWidgetItem(str(target_price)))
             cul_num += 1
             cut_loss_price = row['CUT_LOSS_PRICE']
-            self.tableWidget.setItem(row_num, cul_num, QTableWidgetItem(cut_loss_price))
+            self.tableWidget.setItem(row_num, cul_num, QTableWidgetItem(str(cut_loss_price)))
             cul_num += 1
             buy_trd_yn = row['BUY_TRD_YN']
             self.tableWidget.setItem(row_num, cul_num, QTableWidgetItem(buy_trd_yn))
             cul_num += 1
             sell_trd_yn = row['SELL_TRD_YN']
             self.tableWidget.setItem(row_num, cul_num, QTableWidgetItem(sell_trd_yn))
-            cul_num = 0
+            cul_num = 1
             row_num += 1
 
         self.write_msg_log('TB_TRD_JONGMOK 테이블이 조회되었습니다')
+        cur.close()
+        conn.close()
+
+    # 삽입버튼 메소드. 체크된 항목을 삽입
+    def pushbutton_2_clicked(self):
+        conn = cx_Oracle.connect('ats', '1234', 'localhost:1521/xe', encoding='UTF-8', nencoding='UTF-8')
+        cur = conn.cursor()
+        # print(self.tableWidget.rowCount())
+        for row in range(0, self.tableWidget.rowCount()):
+            print(row)
+            if self.tableWidget.item(row, 10).checkState() == Qt.Checked:  # 체크박스가 체크되었으면
+                user_id = self.g_user_id
+                jongmok_cd = str(self.tableWidget.item(row, 1).text())
+                jongmok_nm = str(self.tableWidget.item(row, 2).text())
+                priority = int(self.tableWidget.item(row, 3).text())
+                buy_amt = int(self.tableWidget.item(row, 4).text())
+                buy_price = int(self.tableWidget.item(row, 5).text())
+                target_price = int(self.tableWidget.item(row, 6).text())
+                cut_loss_price = int(self.tableWidget.item(row, 7).text())
+                buy_trd_yn = str(self.tableWidget.item(row, 8).text())
+                sell_trd_yn = str(self.tableWidget.item(row, 9).text())
+
+                # print(self.g_user_id)
+                # print(jongmok_cd)
+                # print(jongmok_nm)
+                # print(priority)
+                # print(buy_amt)
+                # print(buy_price)
+                # print(target_price)
+                # print(cut_loss_price)
+                # print(buy_trd_yn)
+                # print(buy_trd_yn)
+                # print(buy_trd_yn)
+                # print(sell_trd_yn)
+
+                try:
+                    # sql_insert = f"insert into TB_TRD_JONGMOK values('{user_id}', '{jongmok_cd}', '{jongmok_nm}', {priority}, {buy_amt}, {buy_price}, {target_price}, {cut_loss_price}, '{buy_trd_yn}', '{sell_trd_yn}', '{user_id}', SYSDATE) "
+                    sql_insert = 'insert into TB_TRD_JONGMOK VALUES(:USER_ID, :JONGMOK_CD, :JONGMOK_NM, :PRIORITY, :BUY_AMT, :BUY_PRICE, :TARGET_PRICE, :CUT_LOSS_PRICE, :BUY_TRD_YN, :SELL_TRD_YN, :INST_ID, :INST_DIM, NULL, NULL)'
+                    cur.execute(sql_insert, USER_ID=user_id, JONGMOK_CD=jongmok_cd, JONGMOK_NM=jongmok_nm,
+                                PRIORITY=priority, BUY_AMT=buy_amt, BUY_PRICE=buy_price, TARGET_PRICE=target_price,
+                                CUT_LOSS_PRICE=cut_loss_price, BUY_TRD_YN=buy_trd_yn, SELL_TRD_YN=sell_trd_yn,
+                                INST_ID=user_id, INST_DIM=datetime.datetime.now())
+                    conn.commit()
+                except Exception as ex:
+                    self.write_err_log("insert TB_TRD_JONGMOK ex.Message : [" + str(ex) + "]")
+                    print("insert TB_TRD_JONGMOK ex.Message : [" + str(ex) + "]")
+
+        self.write_msg_log('TB_TRD_JONGMOK 테이블이 변경되었습니다')
+        cur.close()
+        conn.close()
 
 
 if __name__ == "__main__":
