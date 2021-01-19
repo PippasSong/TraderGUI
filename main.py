@@ -41,10 +41,7 @@ class WindowClass(QMainWindow, form_class):
 
         login_act = QAction('로그인', self)
         login_act.triggered.connect(self.menu_login_act)  # 로그인 메소드 호출
-        login_status = QAction('아이디 / 계좌정보 가져오기', self)
-        login_status.triggered.connect(self.menu_login_status)
         self.menu_login.addAction(login_act)
-        self.menu_login.addAction(login_status)
 
         logout_act = QAction('로그아웃', self)
         logout_act.triggered.connect(self.menu_logout_act)  # 로그아웃 메소드 호출
@@ -58,6 +55,32 @@ class WindowClass(QMainWindow, form_class):
 
         # 삽입 버튼
         self.pushButton_2.clicked.connect(self.pushbutton_2_clicked)
+
+        # 수정 버튼
+        self.pushButton_3.clicked.connect(self.pushbutton_3_clicked)
+
+        # 삭제 버튼
+        self.pushButton_4.clicked.connect(self.pushbutton_4_clicked)
+
+        # 체크박스 생성
+        self.insertTable()
+
+    # 체크박스 생성 메소드
+    def insertTable(self):
+        self.checkBoxList = []
+        for i in range(self.tableWidget.rowCount()):
+            ckbox = QCheckBox()
+            self.checkBoxList.append(ckbox)
+
+        for i in range(self.tableWidget.rowCount()):
+            cellWidget = QWidget()
+            layoutCB = QHBoxLayout(cellWidget)
+            layoutCB.addWidget(self.checkBoxList[i])
+            layoutCB.setAlignment(Qt.AlignCenter)
+            layoutCB.setContentsMargins(0, 0, 0, 0)
+            cellWidget.setLayout(layoutCB)
+
+            self.tableWidget.setCellWidget(i, 10, cellWidget)
 
     # 이벤트 처리 함수
     def event_connect(self, err_code):
@@ -122,6 +145,8 @@ class WindowClass(QMainWindow, form_class):
     # 로그인 버튼 액션 메소드
     def menu_login_act(self):
         ret = self.kiwoom.dynamicCall("CommConnect()")  # 로그인창 띄우기, OnEventConnect 이벤트 발생시킴
+        # 로그인시 OnEventConnect 이벤트 발생, 계좌정보 가져오기 메소드를 실행
+        self.kiwoom.OnEventConnect.connect(self.menu_login_status)
 
     # 로그아웃 버튼 액션 메소드
     def menu_logout_act(self):
@@ -177,6 +202,7 @@ class WindowClass(QMainWindow, form_class):
         row_num = 0
         cul_num = 1
         self.tableWidget.clearContents()  # 내용만 초기화
+        self.insertTable()
 
         for row in rows:
             jongmok_cd = row['JONGMOK_CD']
@@ -219,7 +245,8 @@ class WindowClass(QMainWindow, form_class):
         # print(self.tableWidget.rowCount())
         for row in range(0, self.tableWidget.rowCount()):
             print(row)
-            if self.tableWidget.item(row, 10).checkState() == Qt.Checked:  # 체크박스가 체크되었으면
+            if self.tableWidget.cellWidget(row, 10).findChild(type(QCheckBox())).isChecked():
+                # if self.tableWidget.item(row, 10).checkState() == Qt.Checked:  # cellWidget에 체크박스를 넣지 않고 테이블에 바로 넣었을 경우
                 user_id = self.g_user_id
                 jongmok_cd = str(self.tableWidget.item(row, 1).text())
                 jongmok_nm = str(self.tableWidget.item(row, 2).text())
@@ -246,17 +273,85 @@ class WindowClass(QMainWindow, form_class):
 
                 try:
                     # sql_insert = f"insert into TB_TRD_JONGMOK values('{user_id}', '{jongmok_cd}', '{jongmok_nm}', {priority}, {buy_amt}, {buy_price}, {target_price}, {cut_loss_price}, '{buy_trd_yn}', '{sell_trd_yn}', '{user_id}', SYSDATE) "
-                    sql_insert = 'insert into TB_TRD_JONGMOK VALUES(:USER_ID, :JONGMOK_CD, :JONGMOK_NM, :PRIORITY, :BUY_AMT, :BUY_PRICE, :TARGET_PRICE, :CUT_LOSS_PRICE, :BUY_TRD_YN, :SELL_TRD_YN, :INST_ID, :INST_DIM, NULL, NULL)'
+                    sql_insert = 'insert into TB_TRD_JONGMOK VALUES(:USER_ID, :JONGMOK_CD, :JONGMOK_NM, :PRIORITY, ' \
+                                 ':BUY_AMT, :BUY_PRICE, :TARGET_PRICE, :CUT_LOSS_PRICE, :BUY_TRD_YN, :SELL_TRD_YN, ' \
+                                 ':INST_ID, :INST_DIM, NULL, NULL) '
                     cur.execute(sql_insert, USER_ID=user_id, JONGMOK_CD=jongmok_cd, JONGMOK_NM=jongmok_nm,
                                 PRIORITY=priority, BUY_AMT=buy_amt, BUY_PRICE=buy_price, TARGET_PRICE=target_price,
                                 CUT_LOSS_PRICE=cut_loss_price, BUY_TRD_YN=buy_trd_yn, SELL_TRD_YN=sell_trd_yn,
                                 INST_ID=user_id, INST_DIM=datetime.datetime.now())
                     conn.commit()
+                    self.write_msg_log('TB_TRD_JONGMOK 테이블이 변경되었습니다')
                 except Exception as ex:
                     self.write_err_log("insert TB_TRD_JONGMOK ex.Message : [" + str(ex) + "]")
                     print("insert TB_TRD_JONGMOK ex.Message : [" + str(ex) + "]")
 
-        self.write_msg_log('TB_TRD_JONGMOK 테이블이 변경되었습니다')
+
+        cur.close()
+        conn.close()
+
+    # 수정버튼 메소드. 체크된 항목을 수정
+    def pushbutton_3_clicked(self):
+        conn = cx_Oracle.connect('ats', '1234', 'localhost:1521/xe', encoding='UTF-8', nencoding='UTF-8')
+        cur = conn.cursor()
+        # print(self.tableWidget.rowCount())
+        for row in range(0, self.tableWidget.rowCount()):
+            print(row)
+            if self.tableWidget.cellWidget(row, 10).findChild(type(QCheckBox())).isChecked():
+                # if self.tableWidget.item(row, 10).checkState() == Qt.Checked:  # cellWidget에 체크박스를 넣지 않고 테이블에 바로 넣었을 경우
+                user_id = self.g_user_id
+                jongmok_cd = str(self.tableWidget.item(row, 1).text())
+                jongmok_nm = str(self.tableWidget.item(row, 2).text())
+                priority = int(self.tableWidget.item(row, 3).text())
+                buy_amt = int(self.tableWidget.item(row, 4).text())
+                buy_price = int(self.tableWidget.item(row, 5).text())
+                target_price = int(self.tableWidget.item(row, 6).text())
+                cut_loss_price = int(self.tableWidget.item(row, 7).text())
+                buy_trd_yn = str(self.tableWidget.item(row, 8).text())
+                sell_trd_yn = str(self.tableWidget.item(row, 9).text())
+
+                try:
+                    sql_insert = 'UPDATE TB_TRD_JONGMOK SET JONGMOK_NM=:JONGMOK_NM, PRIORITY=:PRIORITY, ' \
+                                 'BUY_AMT=:BUY_AMT, BUY_PRICE=:BUY_PRICE, TARGET_PRICE=:TARGET_PRICE, ' \
+                                 'CUT_LOSS_PRICE=:CUT_LOSS_PRICE, BUY_TRD_YN=:BUY_TRD_YN, SELL_TRD_YN=:SELL_TRD_YN, ' \
+                                 'UPDT_ID=:UPDT_ID, UPDT_DIM=:UPDT_DIM WHERE JONGMOK_CD = :jongmok_cd AND USER_ID = ' \
+                                 ':user_id '
+                    cur.execute(sql_insert, JONGMOK_NM=jongmok_nm,
+                                PRIORITY=priority, BUY_AMT=buy_amt, BUY_PRICE=buy_price, TARGET_PRICE=target_price,
+                                CUT_LOSS_PRICE=cut_loss_price, BUY_TRD_YN=buy_trd_yn, SELL_TRD_YN=sell_trd_yn,
+                                UPDT_ID=user_id, UPDT_DIM=datetime.datetime.now(), jongmok_cd=jongmok_cd,
+                                user_id=user_id)
+                    conn.commit()
+                    self.write_msg_log('TB_TRD_JONGMOK 테이블이 수정되었습니다')
+                except Exception as ex:
+                    self.write_err_log("UPDATE TB_TRD_JONGMOK ex.Message : [" + str(ex) + "]")
+                    print("UPDATE TB_TRD_JONGMOK ex.Message : [" + str(ex) + "]")
+
+        cur.close()
+        conn.close()
+
+    # 삭제버튼 메소드. 체크된 항목을 삭제
+    def pushbutton_4_clicked(self):
+        conn = cx_Oracle.connect('ats', '1234', 'localhost:1521/xe', encoding='UTF-8', nencoding='UTF-8')
+        cur = conn.cursor()
+        # print(self.tableWidget.rowCount())
+        jongmok_cd = None
+        for row in range(0, self.tableWidget.rowCount()):
+            print(row)
+            if self.tableWidget.cellWidget(row, 10).findChild(type(QCheckBox())).isChecked():
+                # if self.tableWidget.item(row, 10).checkState() == Qt.Checked:  # cellWidget에 체크박스를 넣지 않고 테이블에 바로 넣었을 경우
+                user_id = self.g_user_id
+                jongmok_cd = str(self.tableWidget.item(row, 1).text())
+
+                try:
+                    sql_insert = 'DELETE FROM TB_TRD_JONGMOK WHERE JONGMOK_CD=:jongmok_cd AND USER_ID=:g_user_id'
+                    cur.execute(sql_insert, jongmok_cd=jongmok_cd, g_user_id=user_id)
+                    conn.commit()
+                    self.write_msg_log('종목코드 : [' + jongmok_cd + ']가 삭제되었습니다.')
+                except Exception as ex:
+                    self.write_err_log("DELETE TB_TRD_JONGMOK ex.Message : [" + str(ex) + "]")
+                    print("DELETE TB_TRD_JONGMOK ex.Message : [" + str(ex) + "]")
+
         cur.close()
         conn.close()
 

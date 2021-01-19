@@ -216,32 +216,20 @@
       <property name="text">
        <string/>
       </property>
-      <property name="checkState">
-       <enum>Unchecked</enum>
-      </property>
      </item>
      <item row="1" column="10">
       <property name="text">
        <string/>
-      </property>
-      <property name="checkState">
-       <enum>Unchecked</enum>
       </property>
      </item>
      <item row="2" column="10">
       <property name="text">
        <string/>
       </property>
-      <property name="checkState">
-       <enum>Unchecked</enum>
-      </property>
      </item>
      <item row="3" column="10">
       <property name="text">
        <string/>
-      </property>
-      <property name="checkState">
-       <enum>Unchecked</enum>
       </property>
      </item>
      <item row="4" column="6">
@@ -253,48 +241,30 @@
       <property name="text">
        <string/>
       </property>
-      <property name="checkState">
-       <enum>Unchecked</enum>
-      </property>
      </item>
      <item row="5" column="10">
       <property name="text">
        <string/>
-      </property>
-      <property name="checkState">
-       <enum>Unchecked</enum>
       </property>
      </item>
      <item row="6" column="10">
       <property name="text">
        <string/>
       </property>
-      <property name="checkState">
-       <enum>Unchecked</enum>
-      </property>
      </item>
      <item row="7" column="10">
       <property name="text">
        <string/>
-      </property>
-      <property name="checkState">
-       <enum>Unchecked</enum>
       </property>
      </item>
      <item row="8" column="10">
       <property name="text">
        <string/>
       </property>
-      <property name="checkState">
-       <enum>Unchecked</enum>
-      </property>
      </item>
      <item row="9" column="10">
       <property name="text">
        <string/>
-      </property>
-      <property name="checkState">
-       <enum>Unchecked</enum>
       </property>
      </item>
     </widget>
