@@ -22,6 +22,47 @@ os.environ["PATH"] = LOCATION + ";" + os.environ["PATH"]
 os.putenv('NLS_LANG', '.UTF8')
 
 
+class startThread(QThread):
+    # 쓰레드의 커스텀 이벤트
+    # 데이터 전달 시 형을 명시해야 함
+    threadEvent = pyqtSignal(str)
+
+    def __init__(self, parent=None):  # 외부 클래스의 메소드를 사용하기 위해 파라미터로 outer_instance를 받는다
+        # super().__init__()
+        super(self.__class__, self).__init__(parent)
+        self.g_is_thread = 0
+
+
+    def run(self):
+        if self.g_is_thread == 0:  # 최초 스레드 생성
+            self.g_is_thread = 1  # 중복 실행 방지
+
+            # threadEvent 이벤트 발생
+            # 파라미터 전달 기능(객체도 가능)
+            self.threadEvent.emit('자동매매가 시작되었습니다.')
+            # self.write_msg_log('자동매매가 시작되었습니다.')
+
+        while True:
+            cur_tm = datetime.datetime.now()  # 현재시간 조회
+            pre_tm = cur_tm.replace(hour=8, minute=30, second=1)
+            open_tm = cur_tm.replace(hour=9, minute=0, second=1)
+            close_tm = cur_tm.replace(hour=15, minute=30, second=1)
+            if abs(cur_tm - pre_tm) >= datetime.timedelta(seconds=1):  # 8시 30분 이후라면
+                # 계좌조회, 계좌정보 조회, 보유종목 매도주문 수행
+                print('주문 중')
+            if abs(cur_tm - open_tm) >= datetime.timedelta(seconds=1):
+                while True:
+                    print('장 시작')
+                    cur_tm = datetime.datetime.now()  # 현재시간 조회
+                    if abs(cur_tm - close_tm) >= datetime.timedelta(seconds=1):  # 15시 30분 이후
+                        print('장 종료')
+                        break
+                    # 장 운영시간 중이므로 매수나 매도주문
+                    time.sleep(1)
+            time.sleep(1)
+            # break
+
+
 # 화면을 띄우는데 사용되는 Class 선언
 class WindowClass(QMainWindow, form_class):
     def __init__(self):
@@ -62,8 +103,30 @@ class WindowClass(QMainWindow, form_class):
         # 삭제 버튼
         self.pushButton_4.clicked.connect(self.pushbutton_4_clicked)
 
+        # 자동매매 시작
+        self.pushButton_5.clicked.connect(self.pushbutton_5_clicked)
+
         # 체크박스 생성
         self.insertTable()
+
+        # 스레드 관련
+        self.m_is_thread = 0  # 0이면 스레드 미생성, 1이면 스레드 생성
+        # self.start_thread = WindowClass.startThread(self)
+
+        # 쓰레드 인스턴스 생성
+        self.start_thread = startThread()
+
+        # 쓰레드 이벤트 연결
+        self.start_thread.threadEvent.connect(self.threadEventHandler)
+
+        # self.thread1 = QThread()  # 스레드 생성. 파라미터 self???
+        # self.start_thread.moveToThread(self.thread1)  # 만들어둔 쓰레드에 넣는다
+
+    # 쓰레드 이벤트 핸들러
+    # 장식자(데코레이터)에 파라미터 자료형을 명시
+    @pyqtSlot(str)
+    def threadEventHandler(self, s):
+        self.write_msg_log(s)
 
     # 체크박스 생성 메소드
     def insertTable(self):
@@ -90,7 +153,7 @@ class WindowClass(QMainWindow, form_class):
     # 현재시각 가져오기
     def get_cur_tm(self):
         time = QTime.currentTime()
-        answer = time.toString('hh.mm.ss')
+        answer = time.toString('hhmmss')
 
         return answer
 
@@ -286,7 +349,6 @@ class WindowClass(QMainWindow, form_class):
                     self.write_err_log("insert TB_TRD_JONGMOK ex.Message : [" + str(ex) + "]")
                     print("insert TB_TRD_JONGMOK ex.Message : [" + str(ex) + "]")
 
-
         cur.close()
         conn.close()
 
@@ -355,6 +417,16 @@ class WindowClass(QMainWindow, form_class):
         cur.close()
         conn.close()
 
+    def pushbutton_5_clicked(self):
+        if self.m_is_thread == 1:  # 스레드가 이미 생성된 상태라면
+            self.write_err_log('Auto Trading이 이미 시작되었습니다')
+            return  # 메소드 종료
+        self.m_is_thread = 1  # 스레드 생성으로 값 설정
+
+        self.start_thread.start()  # 스레드 시작
+        # self.start_thread.startWork()
+
+
 
 if __name__ == "__main__":
     # QApplication : 프로그램을 실행시켜주는 클래스
@@ -368,3 +440,16 @@ if __name__ == "__main__":
 
     # 프로그램을 이벤트루프로 진입시키는(프로그램을 작동시키는) 코드
     app.exec_()
+
+
+    # 로그 출력 메소드
+    def write_msg_log(text):
+        now = QDate.currentDate()
+        datetime = QDateTime.currentDateTime()
+        time = QTime.currentTime()
+        cur_time = datetime.toString()
+        cur_dt = now.toString(Qt.ISODate)
+        cur_tm = time.toString('hh.mm.ss')
+        cur_dtm = datetime.toString(Qt.DefaultLocaleShortDate)
+
+        myWindow.textEdit.append(cur_dtm + " " + text)
