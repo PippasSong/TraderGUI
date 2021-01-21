@@ -26,35 +26,37 @@ class startThread(QThread):
     # 쓰레드의 커스텀 이벤트
     # 데이터 전달 시 형을 명시해야 함
     threadEvent = pyqtSignal(str)
+    set_accnt_event = pyqtSignal()
 
     def __init__(self, parent=None):  # 외부 클래스의 메소드를 사용하기 위해 파라미터로 outer_instance를 받는다
         # super().__init__()
         super(self.__class__, self).__init__(parent)
         self.g_is_thread = 0
 
-
     def run(self):
-        if self.g_is_thread == 0:  # 최초 스레드 생성
-            self.g_is_thread = 1  # 중복 실행 방지
+        # threadEvent 이벤트 발생
+        # 파라미터 전달 기능(객체도 가능)
+        self.threadEvent.emit('자동매매가 시작되었습니다.')
 
-            # threadEvent 이벤트 발생
-            # 파라미터 전달 기능(객체도 가능)
-            self.threadEvent.emit('자동매매가 시작되었습니다.')
-            # self.write_msg_log('자동매매가 시작되었습니다.')
+        set_tb_accnt_flag = 0  # 1이면 호출 완료
 
         while True:
             cur_tm = datetime.datetime.now()  # 현재시간 조회
             pre_tm = cur_tm.replace(hour=8, minute=30, second=1)
             open_tm = cur_tm.replace(hour=9, minute=0, second=1)
             close_tm = cur_tm.replace(hour=15, minute=30, second=1)
-            if abs(cur_tm - pre_tm) >= datetime.timedelta(seconds=1):  # 8시 30분 이후라면
+            if cur_tm - pre_tm >= datetime.timedelta(seconds=1):  # 8시 30분 이후라면
                 # 계좌조회, 계좌정보 조회, 보유종목 매도주문 수행
                 print('주문 중')
-            if abs(cur_tm - open_tm) >= datetime.timedelta(seconds=1):
+                # 계좌 조회, 계좌정보 조회, 보유종목 매도주문 수행
+                if set_tb_accnt_flag == 0:
+                    set_tb_accnt_flag = 1
+                    self.set_accnt_event.emit()  # 계좌정보 요청 이벤트
+            if cur_tm - open_tm >= datetime.timedelta(seconds=1):
                 while True:
                     print('장 시작')
                     cur_tm = datetime.datetime.now()  # 현재시간 조회
-                    if abs(cur_tm - close_tm) >= datetime.timedelta(seconds=1):  # 15시 30분 이후
+                    if cur_tm - close_tm >= datetime.timedelta(seconds=1):  # 15시 30분 이후
                         print('장 종료')
                         break
                     # 장 운영시간 중이므로 매수나 매도주문
@@ -106,6 +108,9 @@ class WindowClass(QMainWindow, form_class):
         # 자동매매 시작
         self.pushButton_5.clicked.connect(self.pushbutton_5_clicked)
 
+        # 자동매매 중지
+        self.pushButton_6.clicked.connect(self.pushbutton_6_clicked)
+
         # 체크박스 생성
         self.insertTable()
 
@@ -118,9 +123,24 @@ class WindowClass(QMainWindow, form_class):
 
         # 쓰레드 이벤트 연결
         self.start_thread.threadEvent.connect(self.threadEventHandler)
+        self.start_thread.set_accnt_event.connect(self.set_tb_accnt)
 
         # self.thread1 = QThread()  # 스레드 생성. 파라미터 self???
         # self.start_thread.moveToThread(self.thread1)  # 만들어둔 쓰레드에 넣는다
+
+        # 키움증권 open api 응답 대기 이벤트
+        self.kiwoom.OnReceiveTrData.connect(self.axKHOpenAPI1_OnReceiveTrData)
+        self.kiwoom.OnReceiveMsg.connect(self.axKHOpenAPI1_OnReceiveMsg)
+        self.kiwoom.OnReceiveChejanData.connect(self.axKHOpenAPI1_OnReceiveChejanData)
+
+        # 매수가능금액 데이터의 수신을 요청하고 수신 요청이 정상적으로 응답되는지 확인
+        self.g_flag_1 = 0  # 1이면 요청에 대한 응답 완료
+
+        # 데이터 수신을 요청할 때 전달할 요청명을 저장
+        self.g_rqname = None
+
+        # 매수가능액 저장
+        self.g_ord_amt_possible = 0  # 총 매수가능 금액
 
     # 쓰레드 이벤트 핸들러
     # 장식자(데코레이터)에 파라미터 자료형을 명시
@@ -426,6 +446,121 @@ class WindowClass(QMainWindow, form_class):
         self.start_thread.start()  # 스레드 시작
         # self.start_thread.startWork()
 
+    def pushbutton_6_clicked(self):
+        self.write_msg_log('자동매매 중지 시작')
+        try:
+            self.start_thread.terminate()  # 현재 돌아가는 쓰레드 종료
+            self.start_thread.wait()  # 새롭게 쓰레드를 대기시킴
+        except Exception as ex:
+            self.write_err_log('자동매매 중지 ex.Message : ' + str(ex))
+
+        self.m_is_thread = 0
+
+        self.write_msg_log('자동매매 중지 완료')
+
+    # 투자정보 요청 이벤트 메소드
+    # def axKHOpenAPI1_OnReceiveTrData(self, screen_no, rqname, trcode, recordname, prev_next, data_len, err_code, msg1,
+    #                                  msg2):
+    def axKHOpenAPI1_OnReceiveTrData(self, screen_no, rqname, trcode, recordname, prev_next):
+        if self.g_rqname == rqname:  # 요청한 요청명과 Open API로부터 응답받은 요청명이 같다면
+            pass
+        else:
+            self.write_err_log("요청한 TR : [" + self.g_rqname + "]")
+            self.write_err_log("응답받은 TR : [" + rqname + "]")
+
+            if self.g_rqname == '증거금세부내역조회요청':
+                self.g_flag_1 = 1  # 요청하는 쪽에서 무한루프에 빠지지 않게 방지
+            return
+
+        if rqname == '증거금세부내역조회요청':
+            temp = self.kiwoom.dynamicCall("CommGetData(QString, QString, QString, int, QString)",
+                                                              trcode, '', rqname, 0,
+                                                              '100주문가능금액') # 주문가능금액 저장
+            self.g_ord_amt_possible = int(temp.strip())
+            self.kiwoom.dynamicCall("DisconnectRealData(QString)", screen_no)
+            self.g_flag_1 = 1
+
+    # 주식주문 요청 이벤트 메소드
+    def axKHOpenAPI1_OnReceiveMsg(self, sender, e):
+        a = None
+
+    # 주식주문 내역, 체결내역 이벤트 메소드
+    def axKHOpenAPI1_OnReceiveChejanData(self, sender, e):
+        a = None
+
+    # 매수가능금액 요청
+    @pyqtSlot()
+    def set_tb_accnt(self):
+        for_cnt = 0
+        for_flag = 0
+
+        self.write_msg_log('TB_ACCNT 테이블 세팅 시작')
+        self.g_ord_amt_possible = 0  # 매수가능금액
+
+        for_flag = 0
+        while True:
+            self.kiwoom.dynamicCall("SetInputValue(QString, QString )", "계좌번호", self.g_accnt_no)
+            self.kiwoom.dynamicCall("SetInputValue(QString, QString )", "비밀번호", "")
+
+            self.g_rqname = ""
+            self.g_rqname = '증거금세부내역조회요청'  # 요청명 정의
+            self.g_flag_1 = 0  # 요청 중
+
+            scr_no = None  # 화면번호를 담을 변수 선언
+            scr_no = self.get_scr_no()  # 화면번호 채번
+            self.kiwoom.dynamicCall("CommRqData(QString, QString, int, QString)", "증거금세부내역조회요청", "opw00013", 0,
+                                    scr_no)  # 데이터 요청
+
+            for_cnt = 0
+            while True:  # 요청 후 대기 시작
+                if self.g_flag_1 == 1:  # 응답 완료
+                    time.sleep(1)
+                    self.kiwoom.dynamicCall("DisconnectRealData(QString)", scr_no)
+                    for_flag = 1
+                    break
+                else:
+                    self.write_msg_log('증거금 세부내역 조회요청 완료 대기 중')
+                    time.sleep(1)
+                    for_cnt += 1
+                    if for_cnt == 1:  # 한 번이라도 실패하면 무한루프 종료(증권계좌 비밀번호 오류 방지)
+                        for_flag = 0
+                        break
+                    else:
+                        continue
+            self.kiwoom.dynamicCall("DisconnectRealData(QString)", scr_no)
+            if for_flag == 1:  # 요청에 대한 응답을 받았으므로 무한루프 종료
+                break
+            elif for_flag == 0:  # 요청에 대한 응답을 받지 못해도 비밀번호 5회 요류 방지를 위해 무한루프에서 빠져나옴
+                time.sleep(1)
+                break
+            time.sleep(1)
+
+        self.write_msg_log('주문가능금액 : [' + str(self.g_ord_amt_possible) + ']')
+        self.merge_tb_accnt(self.g_ord_amt_possible)
+
+    def merge_tb_accnt(self, g_ord_amt_possible):
+        conn = cx_Oracle.connect('ats', '1234', 'localhost:1521/xe', encoding='UTF-8', nencoding='UTF-8')
+        cur = conn.cursor()
+        now = QDate.currentDate()
+        print(now.toString('ddMMyyyy'))
+
+
+        try:
+            # sql_insert = "MERGE INTO TB_ACCNT a USING(SELECT NVL(MAX(USER_ID), ' ') USER_ID, NVL(MAX(ACCNT_NO), ' ') ACCNT_NO, NVL(MAX(REF_DT), ' ') REF_DT FROM TB_ACCNT WHERE USER_ID = :g_user_id AND ACCNT_NO = :g_accnt_no AND REF_DT = :datecreate) b ON (a.USER_ID = b.USER_ID AND a.ACCNT_NO = b.ACCNT_NO AND a.REF_DT = b.REF_DT) WHEN MATCHED THEN UPDATE SET ORD_POSSIBLE_AMT = :g_ord_amt_possible, UPDT_DTM = :sysdate, UPDT_ID = 'ats' WHEN NOT MATCHED THEN INSERT (a.USER_ID, a.ACCNT_NO, a.REF_DT, a.ORD_POSSIBLE_AMT, a.INST_DTM, a.INST_ID) VALUES(:g_user_id, :g_accnt_no, :datecreate, :g_ord_amt_possible, :sysdate, 'ats')"
+            sql_insert = "MERGE INTO TB_ACCNT a USING(SELECT NVL(MAX(USER_ID), ' ') USER_ID, NVL(MAX(ACCNT_NO), ' ') ACCNT_NO, NVL(MAX(REF_DT), ' ') REF_DT FROM TB_ACCNT WHERE USER_ID = :1 AND ACCNT_NO = :2 AND REF_DT = :3) b ON (a.USER_ID = b.USER_ID AND a.ACCNT_NO = b.ACCNT_NO AND a.REF_DT = b.REF_DT) WHEN MATCHED THEN UPDATE SET ORD_POSSIBLE_AMT = :4, UPDT_DTM = :5, UPDT_ID = 'ats' WHEN NOT MATCHED THEN INSERT (a.USER_ID, a.ACCNT_NO, a.REF_DT, a.ORD_POSSIBLE_AMT, a.INST_DTM, a.INST_ID) VALUES(:6, :7, :8, :9, :10, 'ats')"
+
+            cur.execute(sql_insert, (self.g_user_id,
+                        self.g_accnt_no, now.toString('yyyyMMdd'),
+                        self.g_ord_amt_possible, datetime.datetime.now(),
+                        self.g_user_id, self.g_accnt_no, now.toString('yyyyMMdd'),
+                        self.g_ord_amt_possible, datetime.datetime.now()))
+            conn.commit()
+            self.write_msg_log('TB_ACCNT 테이블이 수정되었습니다')
+        except Exception as ex:
+            self.write_err_log("MERGE_TB_ACCNT ex.Message : [" + str(ex) + "]")
+
+        cur.close()
+        conn.close()
 
 
 if __name__ == "__main__":
@@ -440,16 +575,3 @@ if __name__ == "__main__":
 
     # 프로그램을 이벤트루프로 진입시키는(프로그램을 작동시키는) 코드
     app.exec_()
-
-
-    # 로그 출력 메소드
-    def write_msg_log(text):
-        now = QDate.currentDate()
-        datetime = QDateTime.currentDateTime()
-        time = QTime.currentTime()
-        cur_time = datetime.toString()
-        cur_dt = now.toString(Qt.ISODate)
-        cur_tm = time.toString('hh.mm.ss')
-        cur_dtm = datetime.toString(Qt.DefaultLocaleShortDate)
-
-        myWindow.textEdit.append(cur_dtm + " " + text)
