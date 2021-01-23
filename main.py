@@ -10,9 +10,18 @@ from PyQt5 import uic
 from PyQt5.QtGui import *
 from PyQt5.QAxContainer import *
 
+
+def resource_path(relative_path):
+    """ Get absolute path to resource, works for dev and for PyInstaller """
+    base_path = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base_path, relative_path)
+
+
 # UI파일 연결
 # UI파일은 Python 코드 파일과 같은 디렉토리에 위치해야한다.
-form_class = uic.loadUiType("untitled.ui")[0]
+# form_class = uic.loadUiType("untitled.ui")[0]
+form = resource_path('untitled.ui')
+form_class = uic.loadUiType(form)[0]
 
 # 오라클 DB 환경변수 등록
 LOCATION = r"C:\instantclient_19_9"  # 32bit 버전 써야 한다
@@ -28,6 +37,8 @@ class startThread(QThread):
     threadEvent = pyqtSignal(str)
     set_accnt_event = pyqtSignal()
     set_accnt_info_event = pyqtSignal()
+    ord_first_event = pyqtSignal()
+    real_buy_ord_event = pyqtSignal()
 
     def __init__(self, parent=None):  # 외부 클래스의 메소드를 사용하기 위해 파라미터로 outer_instance를 받는다
         # super().__init__()
@@ -41,6 +52,7 @@ class startThread(QThread):
 
         set_tb_accnt_flag = 0  # 1이면 호출 완료
         set_tb_accnt_info_flag = 0  # 1이면 호출 완료
+        sell_ord_first_flag = 0  # 1이면 호출 완료
 
         while True:
             cur_tm = datetime.datetime.now()  # 현재시간 조회
@@ -57,18 +69,21 @@ class startThread(QThread):
                 if set_tb_accnt_info_flag == 0:
                     self.set_accnt_info_event.emit()  # 계좌정보 조회 요청 이벤트
                     set_tb_accnt_info_flag = 1
+                if sell_ord_first_flag == 0:
+                    self.ord_first_event.emit()  # 보유종목 매도 이벤트
+                    sell_ord_first_flag = 1
 
-            if cur_tm - open_tm >= datetime.timedelta(seconds=1):
+            if cur_tm - open_tm >= datetime.timedelta(seconds=1):  # 장 운영시간
                 while True:
                     print('장 시작')
                     cur_tm = datetime.datetime.now()  # 현재시간 조회
-                    if cur_tm - close_tm >= datetime.timedelta(seconds=1):  # 15시 30분 이후
-                        print('장 종료')
-                        break
+                    # if cur_tm - close_tm >= datetime.timedelta(seconds=1):  # 15시 30분 이후
+                    #     print('장 종료')
+                    #     break
                     # 장 운영시간 중이므로 매수나 매도주문
-                    time.sleep(1)
+                    self.real_buy_ord_event.emit()  # 실시간 매수주문 이벤트
+                    time.sleep(10)
             time.sleep(1)
-            # break
 
 
 # 화면을 띄우는데 사용되는 Class 선언
@@ -131,6 +146,8 @@ class WindowClass(QMainWindow, form_class):
         self.start_thread.threadEvent.connect(self.threadEventHandler)
         self.start_thread.set_accnt_event.connect(self.set_tb_accnt)
         self.start_thread.set_accnt_info_event.connect(self.set_tb_accnt_info)
+        self.start_thread.ord_first_event.connect(self.sell_ord_first)
+        self.start_thread.real_buy_ord_event.connect(self.real_buy_ord)
 
         # self.thread1 = QThread()  # 스레드 생성. 파라미터 self???
         # self.start_thread.moveToThread(self.thread1)  # 만들어둔 쓰레드에 넣는다
@@ -392,11 +409,11 @@ class WindowClass(QMainWindow, form_class):
         cur = conn.cursor()
         # print(self.tableWidget.rowCount())
         for row in range(0, self.tableWidget.rowCount()):
-            print(row)
             if self.tableWidget.cellWidget(row, 10).findChild(type(QCheckBox())).isChecked():
                 # if self.tableWidget.item(row, 10).checkState() == Qt.Checked:  # cellWidget에 체크박스를 넣지 않고 테이블에 바로 넣었을 경우
                 user_id = self.g_user_id
                 jongmok_cd = str(self.tableWidget.item(row, 1).text())
+                print(str(self.tableWidget.item(row, 1).text()))
                 jongmok_nm = str(self.tableWidget.item(row, 2).text())
                 priority = int(self.tableWidget.item(row, 3).text())
                 buy_amt = int(self.tableWidget.item(row, 4).text())
@@ -608,7 +625,7 @@ class WindowClass(QMainWindow, form_class):
                 self.insert_tb_ord_lst(ref_dt, jongmok_cd, jongmok_nm, ord_gb, ord_no, org_ord_no, ord_price,
                                        ord_stock_cnt, ord_amt, ord_dtm)  # 주문내역 저장
 
-                if ord_gb == '2':  # 매수주문일 경우 주문가능금액 갱신신
+                if ord_gb == '2':  # 매수주문일 경우 주문가능금액 갱신
                     self.update_tb_accnt(ord_gb, ord_amt)
             elif chejan_gb == '체결':
                 user_id = self.g_user_id
@@ -636,6 +653,27 @@ class WindowClass(QMainWindow, form_class):
                 self.write_msg_log('체결일시 : [' + chegyul_dtm + ']')
                 self.write_msg_log('주문번호 : [' + ord_no + ']')
                 self.write_msg_log('원주문번호 : [' + org_ord_no + ']')
+
+                self.insert_tb_chegyul_lst(ref_dt, jongmok_cd, jongmok_nm, chegyul_gb, chegyul_no, chegyul_price,
+                                           chegyul_cnt, chegyul_amt, chegyul_dtm, ord_no, org_ord_no)  # 체결내역 저장
+
+                if chegyul_gb == '1':  # 매도체결이라면 계좌 테이블의 매수가능금액을 늘려줌
+                    self.update_tb_accnt(chegyul_gb, chegyul_amt)
+        if gubun == '1':  # 계좌정보 수신
+            user_id = self.g_user_id
+            jongmok_cd = self.kiwoom.dynamicCall("GetChejanData(int)", 9001).strip()[1:7]
+            boyu_cnt = int(self.kiwoom.dynamicCall("GetChejanData(int)", 930).strip())
+            boyu_price = int(self.kiwoom.dynamicCall("GetChejanData(int)", 931).strip())
+            boyu_amt = int(self.kiwoom.dynamicCall("GetChejanData(int)", 932).strip())
+
+            l_jongmok_nm = self.get_jongmok_nm(jongmok_cd)
+
+            self.write_msg_log('종목코드 : [' + jongmok_cd + ']')
+            self.write_msg_log('보유주식수 : [' + str(boyu_cnt) + ']')
+            self.write_msg_log('보유가 : [' + str(boyu_price) + ']')
+            self.write_msg_log('보유금액 : [' + str(boyu_amt) + ']')
+
+            self.merge_tb_accnt_info(jongmok_cd, l_jongmok_nm, boyu_cnt, boyu_price, boyu_amt)  # 계좌정보 저장
 
     # 매수가능금액 요청
     @pyqtSlot()
@@ -821,7 +859,7 @@ class WindowClass(QMainWindow, form_class):
             try:
                 sql_insert = "UPDATE TB_ACCNT SET ORD_POSSIBLE_AMT = ORD_POSSIBLE_AMT - :1, UPDT_DTM = :2, UPDT_ID = 'ats' WHERE USER_ID = :3 AND ACCT_NO = :4 AND REF_DT = :5"
                 cur.execute(sql_insert, (
-                i_chegyul_amt, datetime.datetime.now(), self.g_user_id, self.g_accnt_no, now.toString('yyyyMMdd')))
+                    i_chegyul_amt, datetime.datetime.now(), self.g_user_id, self.g_accnt_no, now.toString('yyyyMMdd')))
                 conn.commit()
             except Exception as ex:
                 self.write_err_log("UPDATE TB_ACCNT ex.Message : [" + str(ex) + "]")
@@ -829,13 +867,287 @@ class WindowClass(QMainWindow, form_class):
             try:
                 sql_insert = "UPDATE TB_ACCNT SET ORD_POSSIBLE_AMT = ORD_POSSIBLE_AMT + :1, UPDT_DTM = :2, UPDT_ID = 'ats' WHERE USER_ID = :3 AND ACCT_NO = :4 AND REF_DT = :5"
                 cur.execute(sql_insert, (
-                i_chegyul_amt, datetime.datetime.now(), self.g_user_id, self.g_accnt_no, now.toString('yyyyMMdd')))
+                    i_chegyul_amt, datetime.datetime.now(), self.g_user_id, self.g_accnt_no, now.toString('yyyyMMdd')))
                 conn.commit()
             except Exception as ex:
                 self.write_err_log("UPDATE TB_ACCNT ex.Message : [" + str(ex) + "]")
 
         cur.close()
         conn.close()
+
+    # 체결내역 각 항목을 TB_CHEGYUL_LST 테이블에 저장
+    def insert_tb_chegyul_lst(self, i_ref_dt, i_jongmok_cd, i_jongmok_nm, i_chegyul_gb, i_chegyul_no, i_chegyul_price,
+                              i_chegyul_stock_cnt, i_chegyul_amt, i_chegyul_dtm, i_ord_no, i_org_ord_no):
+        conn = cx_Oracle.connect('ats', '1234', 'localhost:1521/xe', encoding='UTF-8', nencoding='UTF-8')
+        cur = conn.cursor()
+        now = QDate.currentDate()
+
+        try:
+            sql_insert = "INSERT INTO TB_CHEGYUL_LST VALUES(:1, :2, :3, :4, :5, :6, :7, :8, :9, :10, :11, :12, :13, 'ats', :14, NULL, NULL)"
+            cur.execute(sql_insert, (
+                self.g_user_id, self.g_accnt_no, i_ref_dt, i_jongmok_cd, i_jongmok_nm, i_chegyul_gb, i_ord_no,
+                i_chegyul_gb,
+                i_chegyul_no, i_chegyul_price, i_chegyul_stock_cnt, i_chegyul_amt, i_chegyul_dtm,
+                datetime.datetime.now()))
+            conn.commit()
+        except Exception as ex:
+            self.write_err_log("INSERT TB_CHEGYUL_LST ex.Message : [" + str(ex) + "]")
+
+        cur.close()
+        conn.close()
+
+    # 수신받은 계좌정보를 TB_ACCNT_INFO 테이블에 갱신 또는 삽입
+    def merge_tb_accnt_info(self, i_jongmok_cd, i_jongmok_nm, i_boyu_cnt, i_boyu_price, i_boyu_amt):
+        conn = cx_Oracle.connect('ats', '1234', 'localhost:1521/xe', encoding='UTF-8', nencoding='UTF-8')
+        cur = conn.cursor()
+        now = QDate.currentDate()
+
+        # 계좌정보 테이블 세팅, 기존에 보유한 종목이면 갱신, 보유하지 않았으면 신규로 삽입
+        try:
+            sql_insert = "MERGE INTO TB_ACCNT_INFO a USING(SELECT NVL(MAX(USER_ID), '0') USER_ID, NVL(MAX(REF_DT), " \
+                         "'0') REF_DT, NVL(MAX(JONGMOK_CD), '0') JONGMOK_CD, NVL(MAX(JONGMOK_NM), '0') JONGMOK_NM " \
+                         "FROM TB_ACCNT_INFO WHERE USER_ID = :1 AND ACCNT_NO = :2 AND JONGMOK_CD = :3 AND REF_DT = " \
+                         ":4) b ON (a.USER.ID = b.USER_ID AND a.JONGMOK_CD = b.JONGMOK_CD AND a.REF_DT = b.REF_DT) " \
+                         "WHEN MATCHED THEN UPDATE SET OWN_STOCK_CNT = :5, BUY_PRICE = :6, OWN_AMT = :7, UPDT_DTM = " \
+                         ":8, UPDT_ID = 'ats' WHEN NOT MATCHED THEN INSERT(a.USER_ID, a.ACCNT_NO, a.REF_DT, " \
+                         "a.JONGMOK_CD, a.JONGMOK_NM, a.BUY_PRICE, a.OWN_STOCK_CNT, a.OWN_AMT, a.INST_DTM, " \
+                         "a.INST_ID) VALUES(:9, :10, :11, :12, :13, :14, :15, :16, :17, 'ats') "
+            cur.execute(sql_insert, (
+                self.g_user_id, self.g_accnt_no, i_jongmok_cd, now.toString('yyyyMMdd'), i_boyu_cnt, i_boyu_price,
+                i_boyu_amt, datetime.datetime.now(), self.g_user_id, self.g_accnt_no, now.toString('yyyyMMdd'),
+                i_jongmok_cd, i_jongmok_nm, i_boyu_price, i_boyu_cnt, i_boyu_amt, datetime.datetime.now()))
+            conn.commit()
+        except Exception as ex:
+            self.write_err_log("MERGE TB_ACCNT_INFO ex.Message : [" + str(ex) + "]")
+
+        cur.close()
+        conn.close()
+
+    # TB_TRD_JONGMOK 테이블과 TB_ACCNT_INFO 테이블을 조인하여 매도대상 종목을 조회
+    def sell_ord_first(self):
+        conn = cx_Oracle.connect('ats', '1234', 'localhost:1521/xe', encoding='UTF-8', nencoding='UTF-8')
+        cur = conn.cursor()
+        now = QDate.currentDate()
+
+        # 두 테이블을 조인하여 매도대상 종목 조회
+        sql_insert = "SELECT A.JONGMOK_CD, A.BUY_PRICE, A.OWN_STOCK_CNT, B.TARGET_PRICE FROM TB_ACCNT_INFO A, TB_TRD_JONGMOK B WHERE A.USER_ID = :1 AND A.ACCNT_NO = :2 AND A.REF_DT = :3 AND A.USER_ID = B.USER_ID AND A.JONGMOK_CD = B.JONGMOK_CD AND B.SELL_TRD_YN = 'Y' AND A.OWN_STOCK_CNT > 0"
+        cur.execute(sql_insert, (
+            self.g_user_id, self.g_accnt_no, now.toString('yyyyMMdd')))
+        for row in cur:
+            l_jongmok_cd = str(row[0]).strip()
+            l_buy_price = int(str(row[1]).strip())
+            l_own_stock_cnt = int(str(row[2]).strip())
+            l_target_price = int(str(row[3]).strip())
+
+            self.write_msg_log('종목코드 : [' + l_jongmok_cd + ']')
+            self.write_msg_log('매입가 : [' + str(l_buy_price) + ']')
+            self.write_msg_log('보유주식수 : [' + str(l_own_stock_cnt) + ']')
+            self.write_msg_log('목표가 : [' + str(l_target_price) + ']')
+
+            l_new_target_price = 0
+            l_new_target_price = self.get_hoga_unit_price(l_target_price, l_jongmok_cd, 0)
+
+            self.g_flag_4 = 0
+            self.g_rqname = '매도주문'
+
+            l_scr_no = self.get_scr_no()
+            ret = 0
+
+            # 매도주문 요청
+            ret = self.kiwoom.dynamicCall(
+                "SendOrder(QString, QString, QString, int, QString, int, int, QString, QString)", ['매도주문', l_scr_no,
+                                                                                                   self.g_accnt_no, 2,
+                                                                                                   l_jongmok_cd,
+                                                                                                   l_own_stock_cnt,
+                                                                                                   l_new_target_price,
+                                                                                                   "00", ""])
+            if ret == 0:
+                self.write_msg_log('매도주문 Sendord() 호출 성공')
+                self.write_msg_log('종목코드 : [' + l_jongmok_cd + ']')
+            else:
+                self.write_msg_log('매도주문 Sendord() 호출 실패')
+                self.write_msg_log('i_jongmok_cd : [' + l_jongmok_cd + ']')
+
+            time.sleep(0.2)
+
+            while True:
+                if self.g_flag_4 == 1:
+                    time.sleep(0.2)
+                    self.kiwoom.dynamicCall("DisconnectRealData(QString)", l_scr_no)
+                    break
+                else:
+                    self.write_msg_log('매도주문 완료 대기 중')
+                    time.sleep(0.2)
+                    break
+            self.kiwoom.dynamicCall("DisconnectRealData(QString)", l_scr_no)
+
+        conn.commit()
+        cur.close()
+        conn.close()
+
+    # 매도하기 전 유효한 호가가격단위 구하기
+    def get_hoga_unit_price(self, i_price, i_jongmok_cd, i_hoga_unit_jump):
+        l_rest = None
+        l_market_type = 0
+
+        try:
+            l_market_type = int(
+                str(self.kiwoom.dynamicCall("GetMarketType(QString)", i_jongmok_cd)))  # 시장구분 가져오기. 0:코스피, 10:코스닥
+        except Exception as ex:
+            self.write_err_log("get_hoga_unit_price() ex.Message : [" + str(ex) + "]")
+        if i_price < 1000:
+            return i_price + (i_hoga_unit_jump * 1)
+        elif 1000 <= i_price < 5000:
+            l_rest = i_price % 5
+            if l_rest == 0:
+                return i_price + (i_hoga_unit_jump * 5)
+            elif l_rest < 3:
+                return (i_price - l_rest) + (i_hoga_unit_jump * 5)
+            else:
+                return (i_price + (5 - l_rest)) + (i_hoga_unit_jump * 5)
+        elif 5000 <= i_price < 10000:
+            l_rest = i_price % 10
+            if l_rest == 0:
+                return i_price + (i_hoga_unit_jump * 10)
+            elif l_rest < 5:
+                return (i_price - l_rest) + (i_hoga_unit_jump * 10)
+            else:
+                return (i_price + (10 - l_rest)) + (i_hoga_unit_jump * 10)
+        elif 10000 <= i_price < 50000:
+            l_rest = i_price % 50
+            if l_rest == 0:
+                return i_price + (i_hoga_unit_jump * 50)
+            elif l_rest < 25:
+                return (i_price - l_rest) + (i_hoga_unit_jump * 50)
+            else:
+                return (i_price + (50 - l_rest)) + (i_hoga_unit_jump * 50)
+        elif 50000 <= i_price < 100000:
+            l_rest = i_price % 100
+            if l_rest == 0:
+                return i_price + (i_hoga_unit_jump * 100)
+            elif l_rest < 50:
+                return (i_price - l_rest) + (i_hoga_unit_jump * 100)
+            else:
+                return (i_price + (100 - l_rest)) + (i_hoga_unit_jump * 100)
+        elif 100000 <= i_price < 500000:
+            if l_market_type == 10:
+                l_rest = i_price % 100
+                if l_rest == 0:
+                    return i_price + (i_hoga_unit_jump * 100)
+                elif l_rest < 50:
+                    return (i_price - l_rest) + (i_hoga_unit_jump * 100)
+                else:
+                    return (i_price + (100 - l_rest)) + (i_hoga_unit_jump * 100)
+            else:
+                l_rest = i_price % 500
+                if l_rest == 0:
+                    return i_price + (i_hoga_unit_jump * 500)
+                elif l_rest < 250:
+                    return (i_price - l_rest) + (i_hoga_unit_jump * 500)
+                else:
+                    return (i_price + (500 - l_rest)) + (i_hoga_unit_jump * 500)
+        elif 500000 <= i_price:
+            if l_market_type == 10:
+                l_rest = i_price % 100
+                if l_rest == 0:
+                    return i_price + (i_hoga_unit_jump * 100)
+                elif l_rest < 50:
+                    return (i_price - l_rest) + (i_hoga_unit_jump * 100)
+                else:
+                    return (i_price + (100 - l_rest)) + (i_hoga_unit_jump * 100)
+            else:
+                l_rest = i_price % 1000
+                if l_rest == 0:
+                    return i_price + (i_hoga_unit_jump * 1000)
+                elif l_rest < 500:
+                    return (i_price - l_rest) + (i_hoga_unit_jump * 1000)
+                else:
+                    return (i_price + (1000 - l_rest)) + (i_hoga_unit_jump * 1000)
+        return 0
+
+    # 실시간 매수주문
+    def real_buy_ord(self):
+        conn = cx_Oracle.connect('ats', '1234', 'localhost:1521/xe', encoding='UTF-8', nencoding='UTF-8')
+        cur = conn.cursor()
+        now = QDate.currentDate()
+
+        # 두 테이블을 조인하여 매도대상 종목 조회
+        sql_insert = "SELECT A.JONGMOK_CD, A.BUY_AMT, A.BUY_PRICE FROM TB_TRD_JONGMOK A WHERE A.USER_ID = :USER_ID AND A.BUY_TRD_YN = 'Y' ORDER BY A.PRIORITY"
+        cur.execute(sql_insert, USER_ID=self.g_user_id)
+        for row in cur:
+            l_jongmok_cd = str(row[0]).strip()
+            l_buy_amt = int(str(row[1]).strip())  # 매수금액
+            l_buy_price = int(str(row[2]).strip())  # 매수가
+
+            l_buy_price_tmp = self.get_hoga_unit_price(l_buy_price, l_jongmok_cd, 1)  # 매수호가 구하기
+            l_buy_ord_stock_cnt = int(l_buy_amt / l_buy_price_tmp)  # 매수주문 주식
+
+            self.write_msg_log('종목코드 : [' + str(l_jongmok_cd) + ']')
+            self.write_msg_log('종목명 : [' + self.get_jongmok_nm(l_jongmok_cd) + ']')
+            self.write_msg_log('매수금액 : [' + str(l_buy_amt) + ']')
+            self.write_msg_log('매수가 : [' + str(l_buy_price_tmp) + ']')
+
+            l_own_stock_cnt = 0
+            l_own_stock_cnt = self.get_own_stock_cnt(l_jongmok_cd)  # 해당 종목 보유주식수 구하기
+            self.write_msg_log('보유주식수 : [' + str(l_own_stock_cnt) + ']')
+
+            if l_own_stock_cnt > 0:
+                self.write_msg_log('해당 종목을 보유 중이므로 매수하지 않음')
+                continue
+
+            self.g_flag_3 = 0
+            self.g_rqname = '매수주문'
+
+            l_scr_no = self.get_scr_no()
+            ret = 0
+
+            # 매수주문 요청
+            ret = self.kiwoom.dynamicCall(
+                "SendOrder(QString, QString, QString, int, QString, int, int, QString, QString)",
+                ['매수주문', l_scr_no, self.g_accnt_no, 1, l_jongmok_cd, l_buy_ord_stock_cnt, l_buy_price, '00', ''])
+            if ret == 0:
+                self.write_msg_log('매수주문 Sendord() 호출 성공')
+                self.write_msg_log('종목코드 : [' + l_jongmok_cd + ']')
+            else:
+                self.write_msg_log('매수주문 Sendord() 호출 실패')
+                self.write_msg_log('i_jongmok_cd : [' + l_jongmok_cd + ']')
+
+            time.sleep(0.2)
+
+            while True:
+                if self.g_flag_3 == 1:
+                    time.sleep(0.2)
+                    self.kiwoom.dynamicCall("DisconnectRealData(QString)", l_scr_no)
+                    break
+                else:
+                    self.write_msg_log('매수주문 완료 대기 중')
+                    time.sleep(0.2)
+                    break
+            self.kiwoom.dynamicCall("DisconnectRealData(QString)", l_scr_no)
+            time.sleep(1)
+
+        conn.commit()
+        cur.close()
+        conn.close()
+
+    # 보유주식수 구하기(이미 보유한 주식이라면 매수주문을 내지 않는다)
+    def get_own_stock_cnt(self, i_jongmok_cd):
+        conn = cx_Oracle.connect('ats', '1234', 'localhost:1521/xe', encoding='UTF-8', nencoding='UTF-8')
+        cur = conn.cursor()
+        now = QDate.currentDate()
+        l_own_stock_cnt = 0
+        # 두 테이블을 조인하여 매도대상 종목 조회
+        sql_insert = "SELECT NVL(MAX(OWN_STOCK_CNT), 0) OWN_STOCK_CNT FROM TB_ACCNT_INFO WHERE USER_ID = :1 AND JONGMOK_CD = :2 AND ACCNT_NO = :3 AND REF_DT = :4"
+        cur.execute(sql_insert, (self.g_user_id, i_jongmok_cd, self.g_accnt_no, now.toString('yyyyMMdd')))
+
+        for row in cur:
+            l_own_stock_cnt = int(str(row[0]))  # 보유주식수 구하기
+
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        return l_own_stock_cnt
 
 
 if __name__ == "__main__":
