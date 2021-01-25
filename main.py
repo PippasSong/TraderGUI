@@ -77,9 +77,9 @@ class startThread(QThread):
                 while True:
                     print('장 시작')
                     cur_tm = datetime.datetime.now()  # 현재시간 조회
-                    # if cur_tm - close_tm >= datetime.timedelta(seconds=1):  # 15시 30분 이후
-                    #     print('장 종료')
-                    #     break
+                    if cur_tm - close_tm >= datetime.timedelta(seconds=1):  # 15시 30분 이후
+                        print('장 종료')
+                        break
                     # 장 운영시간 중이므로 매수나 매도주문
                     self.real_buy_ord_event.emit()  # 실시간 매수주문 이벤트
                     time.sleep(10)
@@ -94,6 +94,8 @@ class WindowClass(QMainWindow, form_class):
         self.g_scr_no = 0  # Open API 요청번호
         self.g_user_id = None
         self.g_accnt_no = None
+
+        self.g_buy_hoga = 0  # 최우선 매수호가 저장 변수
 
         # 키움증권 클래스를 사용하기 위해 인스턴스 생성(ProgID를 사용)
         self.kiwoom = QAxWidget("KHOPENAPI.KHOpenAPICtrl.1")
@@ -166,6 +168,7 @@ class WindowClass(QMainWindow, form_class):
         self.g_flag_3 = 0  # 매수주문 응답 플래그
         self.g_flag_4 = 0  # 매도주문 응답 플래그
         self.g_flag_5 = 0  # 매도취소주문 응답 플래그
+        self.g_flag_7 = 0  # 최우선 매수호가 플래스 변수가 1이면 조회 완료
 
         # 데이터 수신을 요청할 때 전달할 요청명을 저장
         self.g_rqname = None
@@ -475,7 +478,6 @@ class WindowClass(QMainWindow, form_class):
         self.m_is_thread = 1  # 스레드 생성으로 값 설정
 
         self.start_thread.start()  # 스레드 시작
-        # self.start_thread.startWork()
 
     def pushbutton_6_clicked(self):
         self.write_msg_log('자동매매 중지 시작')
@@ -503,6 +505,9 @@ class WindowClass(QMainWindow, form_class):
                 self.g_flag_1 = 1  # 요청하는 쪽에서 무한루프에 빠지지 않게 방지
             elif self.g_rqname == '계좌평가현황요청':
                 self.g_flag_2 = 1  # 요청하는 쪽에서 무한루프에 빠지지 않게 방지
+            elif self.g_rqname == '호가조회':
+                self.g_flag_7 = 1
+
             return
 
         if rqname == '증거금세부내역조회요청':
@@ -523,7 +528,8 @@ class WindowClass(QMainWindow, form_class):
             buy_price = 0
             own_amt = 0
 
-            repeat_cnt = self.kiwoom.dynamicCall("GetRepeatCnt(QString, QString)", trcode, rqname)  # 보유종목수 가져오기
+            repeat_cnt = self.kiwoom.dynamicCall("GetRepeatCnt(QString, QString)", [trcode, rqname])  # 보유종목수 가져오기
+            print(repeat_cnt)
 
             self.write_msg_log("TB_ACCNT_INFO 테이블 설정 시작")
             self.write_msg_log("보유종목수 : " + str(repeat_cnt))
@@ -544,16 +550,17 @@ class WindowClass(QMainWindow, form_class):
                     self.kiwoom.dynamicCall("CommGetData(QString, QString, QString, int, QString)", trcode, '', rqname,
                                             ii, '보유수량').strip())
                 buy_price = int(
-                    self.kiwoom.dynamicCall("CommGetData(QString, QString, QString, int, QString)", trcode, '', rqname,
-                                            ii, '평균단가').strip())
+                    self.kiwoom.dynamicCall("CommGetData(QString, QString, QString, int, QString)", [trcode, '', rqname,
+                                            ii, '평균단가']).strip('0').rstrip('.'))
                 own_amt = int(
                     self.kiwoom.dynamicCall("CommGetData(QString, QString, QString, int, QString)", trcode, '', rqname,
                                             ii, '매입금액').strip())
-
                 if own_stock_cnt == 0:  # 보유주식수가 0이라면 저장하지 않음
                     continue
                 self.insert_tb_accnt_info(jongmok_cd, jongmok_nm, buy_price, own_stock_cnt, own_amt)  # 계좌정보 테이블에 저장
+                print('한번 저장')
                 ii += 1
+
             self.write_msg_log('TB_ACCNT_INFO 테이블 설정 완료')
             self.kiwoom.dynamicCall("DisconnectRealData(QString)", screen_no)
 
@@ -563,6 +570,22 @@ class WindowClass(QMainWindow, form_class):
                 self.g_is_next = int(prev_next)
 
             self.g_flag_2 = 1
+
+        if rqname == '호가조회':
+            cnt = 0
+            ii = 0
+            l_buy_hoga = 0
+
+            cnt = self.kiwoom.dynamicCall("GetRepeatCnt(QString, QString)", [trcode, rqname])
+
+            while ii < cnt:
+                l_buy_hoga  = int(self.kiwoom.dynamicCall("CommGetData(QString, QString, QString, int, QString)", [trcode, '', rqname, ii, '매수최우선호가']).strip())
+                l_buy_hoga = abs(l_buy_hoga)
+                ii += 1
+
+            self.g_buy_hoga = l_buy_hoga
+            self.kiwoom.dynamicCall("DisconnectRealData(QString)", screen_no)
+            self.g_flag_7 = 1
 
     # 주식주문 요청 이벤트 메소드
     def axKHOpenAPI1_OnReceiveMsg(self, screen_no, rqname, trcode, msg):
@@ -730,7 +753,12 @@ class WindowClass(QMainWindow, form_class):
         now = QDate.currentDate()
 
         try:
-            sql_insert = "MERGE INTO TB_ACCNT a USING(SELECT NVL(MAX(USER_ID), ' ') USER_ID, NVL(MAX(ACCNT_NO), ' ') ACCNT_NO, NVL(MAX(REF_DT), ' ') REF_DT FROM TB_ACCNT WHERE USER_ID = :1 AND ACCNT_NO = :2 AND REF_DT = :3) b ON (a.USER_ID = b.USER_ID AND a.ACCNT_NO = b.ACCNT_NO AND a.REF_DT = b.REF_DT) WHEN MATCHED THEN UPDATE SET ORD_POSSIBLE_AMT = :4, UPDT_DTM = :5, UPDT_ID = 'ats' WHEN NOT MATCHED THEN INSERT (a.USER_ID, a.ACCNT_NO, a.REF_DT, a.ORD_POSSIBLE_AMT, a.INST_DTM, a.INST_ID) VALUES(:6, :7, :8, :9, :10, 'ats')"
+            sql_insert = "MERGE INTO TB_ACCNT a USING(SELECT NVL(MAX(USER_ID), ' ') USER_ID, NVL(MAX(ACCNT_NO), " \
+                         "' ') ACCNT_NO, NVL(MAX(REF_DT), ' ') REF_DT FROM TB_ACCNT WHERE USER_ID = :1 AND ACCNT_NO = " \
+                         ":2 AND REF_DT = :3) b ON (a.USER_ID = b.USER_ID AND a.ACCNT_NO = b.ACCNT_NO AND a.REF_DT = " \
+                         "b.REF_DT) WHEN MATCHED THEN UPDATE SET ORD_POSSIBLE_AMT = :4, UPDT_DTM = :5, " \
+                         "UPDT_ID = 'ats' WHEN NOT MATCHED THEN INSERT (a.USER_ID, a.ACCNT_NO, a.REF_DT, " \
+                         "a.ORD_POSSIBLE_AMT, a.INST_DTM, a.INST_ID) VALUES(:6, :7, :8, :9, :10, 'ats') "
 
             cur.execute(sql_insert, (self.g_user_id,
                                      self.g_accnt_no, now.toString('yyyyMMdd'),
@@ -773,7 +801,7 @@ class WindowClass(QMainWindow, form_class):
                 self.kiwoom.dynamicCall("SetInputValue(QString, QString)", "상장폐지조회구분", "1")
                 self.kiwoom.dynamicCall("SetInputValue(QString, QString)", "비밀번호입력매체구분", "00")
 
-                # self.g_flag_2 = 0 ???????(이거 있으면 무한 루프)
+                # self.g_flag_2 = 0 # ???????(이거 있으면 무한 루프)
                 self.g_rqname = '계좌평가현황요청'
 
                 scr_no = self.get_scr_no()
@@ -781,7 +809,7 @@ class WindowClass(QMainWindow, form_class):
                 # 계좌정보 데이터 수신 요청. 이벤트 발생
                 self.kiwoom.dynamicCall("CommRqData(QString, QString, int, QString)", "계좌평가현황요청", "OPW00004",
                                         self.g_is_next, scr_no)
-
+                print('성공')
                 for_cnt = 0
                 # 응답 대기 ------------------> 쓸모없는 코드? 응답 대기하면 이벤트 발생하지 않고 루프를 다시 돈다. 그 이후 정상작동
                 while True:
@@ -857,7 +885,7 @@ class WindowClass(QMainWindow, form_class):
 
         if i_chegyul_gb == '2':  # 매수일 때 주문가능금액에서 체결금액 빼기
             try:
-                sql_insert = "UPDATE TB_ACCNT SET ORD_POSSIBLE_AMT = ORD_POSSIBLE_AMT - :1, UPDT_DTM = :2, UPDT_ID = 'ats' WHERE USER_ID = :3 AND ACCT_NO = :4 AND REF_DT = :5"
+                sql_insert = "UPDATE TB_ACCNT SET ORD_POSSIBLE_AMT = ORD_POSSIBLE_AMT - :1, UPDT_DTM = :2, UPDT_ID = 'ats' WHERE USER_ID = :3 AND ACCNT_NO = :4 AND REF_DT = :5"
                 cur.execute(sql_insert, (
                     i_chegyul_amt, datetime.datetime.now(), self.g_user_id, self.g_accnt_no, now.toString('yyyyMMdd')))
                 conn.commit()
@@ -865,7 +893,7 @@ class WindowClass(QMainWindow, form_class):
                 self.write_err_log("UPDATE TB_ACCNT ex.Message : [" + str(ex) + "]")
         elif i_chegyul_gb == '1':  # 매도일 때 주문가능금액에 체결금액 더하기
             try:
-                sql_insert = "UPDATE TB_ACCNT SET ORD_POSSIBLE_AMT = ORD_POSSIBLE_AMT + :1, UPDT_DTM = :2, UPDT_ID = 'ats' WHERE USER_ID = :3 AND ACCT_NO = :4 AND REF_DT = :5"
+                sql_insert = "UPDATE TB_ACCNT SET ORD_POSSIBLE_AMT = ORD_POSSIBLE_AMT + :1, UPDT_DTM = :2, UPDT_ID = 'ats' WHERE USER_ID = :3 AND ACCNT_NO = :4 AND REF_DT = :5"
                 cur.execute(sql_insert, (
                     i_chegyul_amt, datetime.datetime.now(), self.g_user_id, self.g_accnt_no, now.toString('yyyyMMdd')))
                 conn.commit()
@@ -909,12 +937,12 @@ class WindowClass(QMainWindow, form_class):
                          "FROM TB_ACCNT_INFO WHERE USER_ID = :1 AND ACCNT_NO = :2 AND JONGMOK_CD = :3 AND REF_DT = " \
                          ":4) b ON (a.USER.ID = b.USER_ID AND a.JONGMOK_CD = b.JONGMOK_CD AND a.REF_DT = b.REF_DT) " \
                          "WHEN MATCHED THEN UPDATE SET OWN_STOCK_CNT = :5, BUY_PRICE = :6, OWN_AMT = :7, UPDT_DTM = " \
-                         ":8, UPDT_ID = 'ats' WHEN NOT MATCHED THEN INSERT(a.USER_ID, a.ACCNT_NO, a.REF_DT, " \
+                         ":8, UPDT_ID = :9 WHEN NOT MATCHED THEN INSERT(a.USER_ID, a.ACCNT_NO, a.REF_DT, " \
                          "a.JONGMOK_CD, a.JONGMOK_NM, a.BUY_PRICE, a.OWN_STOCK_CNT, a.OWN_AMT, a.INST_DTM, " \
-                         "a.INST_ID) VALUES(:9, :10, :11, :12, :13, :14, :15, :16, :17, 'ats') "
+                         "a.INST_ID) VALUES(:10, :11, :12, :13, :14, :15, :16, :17, :18, 'ats') "
             cur.execute(sql_insert, (
                 self.g_user_id, self.g_accnt_no, i_jongmok_cd, now.toString('yyyyMMdd'), i_boyu_cnt, i_boyu_price,
-                i_boyu_amt, datetime.datetime.now(), self.g_user_id, self.g_accnt_no, now.toString('yyyyMMdd'),
+                i_boyu_amt, datetime.datetime.now(),'ats', self.g_user_id, self.g_accnt_no, now.toString('yyyyMMdd'),
                 i_jongmok_cd, i_jongmok_nm, i_boyu_price, i_boyu_cnt, i_boyu_amt, datetime.datetime.now()))
             conn.commit()
         except Exception as ex:
@@ -928,11 +956,14 @@ class WindowClass(QMainWindow, form_class):
         conn = cx_Oracle.connect('ats', '1234', 'localhost:1521/xe', encoding='UTF-8', nencoding='UTF-8')
         cur = conn.cursor()
         now = QDate.currentDate()
-
+        print('성공')
         # 두 테이블을 조인하여 매도대상 종목 조회
-        sql_insert = "SELECT A.JONGMOK_CD, A.BUY_PRICE, A.OWN_STOCK_CNT, B.TARGET_PRICE FROM TB_ACCNT_INFO A, TB_TRD_JONGMOK B WHERE A.USER_ID = :1 AND A.ACCNT_NO = :2 AND A.REF_DT = :3 AND A.USER_ID = B.USER_ID AND A.JONGMOK_CD = B.JONGMOK_CD AND B.SELL_TRD_YN = 'Y' AND A.OWN_STOCK_CNT > 0"
+        sql_insert = "SELECT A.JONGMOK_CD, A.BUY_PRICE, A.OWN_STOCK_CNT, B.TARGET_PRICE FROM TB_ACCNT_INFO A, " \
+                     "TB_TRD_JONGMOK B WHERE A.USER_ID = :1 AND A.ACCNT_NO = :2 AND A.REF_DT = :3 AND A.USER_ID = " \
+                     "B.USER_ID AND A.JONGMOK_CD = B.JONGMOK_CD AND B.SELL_TRD_YN = 'Y' AND A.OWN_STOCK_CNT > 0 "
         cur.execute(sql_insert, (
             self.g_user_id, self.g_accnt_no, now.toString('yyyyMMdd')))
+        print('성공1')
         for row in cur:
             l_jongmok_cd = str(row[0]).strip()
             l_buy_price = int(str(row[1]).strip())
@@ -1086,13 +1117,65 @@ class WindowClass(QMainWindow, form_class):
             self.write_msg_log('종목명 : [' + self.get_jongmok_nm(l_jongmok_cd) + ']')
             self.write_msg_log('매수금액 : [' + str(l_buy_amt) + ']')
             self.write_msg_log('매수가 : [' + str(l_buy_price_tmp) + ']')
-
             l_own_stock_cnt = 0
             l_own_stock_cnt = self.get_own_stock_cnt(l_jongmok_cd)  # 해당 종목 보유주식수 구하기
             self.write_msg_log('보유주식수 : [' + str(l_own_stock_cnt) + ']')
-
+            # 이 부분 수정해서 태이블에서 수정하면 추가매수 할 수 있게 하기
             if l_own_stock_cnt > 0:
                 self.write_msg_log('해당 종목을 보유 중이므로 매수하지 않음')
+                continue
+
+            l_buy_not_chegyul_yn = self.get_buy_not_chegyul_yn(l_jongmok_cd)  # 미체결 매수주문 여부 확인
+
+            if l_buy_not_chegyul_yn == 'Y':  # 미체결 매수주문이 있으므로 매수하지 않음
+                self.write_msg_log('해당 종목에 미체결 매수주문이 있으므로 매수하지 않음')
+                continue
+
+            l_for_flag = 0
+            l_for_cnt = 0
+            self.g_buy_hoga = 0
+            while True:
+                self.g_rqname = ''
+                self.g_rqname = '호가조회'
+                self.g_flag_7 = 0
+                self.kiwoom.dynamicCall(
+                    "SetInputValue(QString, QString)", ['종목코드', l_jongmok_cd])
+
+                l_scr_no_2 = self.get_scr_no()
+                self.kiwoom.dynamicCall(
+                    "CommRqData(QString, QString, int, QString)", ['호가조회', 'opt10004', 0, l_scr_no_2])
+
+                try:
+                    l_for_cnt = 0
+                    while True:
+                        if self.g_flag_7 == 1:
+                            time.sleep(0.2)
+                            self.kiwoom.dynamicCall("DisconnectRealData(QString)", l_scr_no_2)
+                            l_for_flag = 1
+                            break
+                        else:
+                            self.write_msg_log('호가조회 완료 대기 중')
+                            time.sleep(0.2)
+                            l_for_cnt += 1
+                            if l_for_cnt == 5:
+                                l_for_flag = 0
+                                break
+                            else:
+                                continue
+                except Exception as ex:
+                    self.write_err_log("real_buy_ord() 호가조회 ex.Message : [" + str(ex) + "]")
+
+                self.kiwoom.dynamicCall("DisconnectRealData(QString)", l_scr_no_2)
+
+                if l_for_flag == 1:
+                    break
+                elif l_for_flag == 0:
+                    time.sleep(0.2)
+                    continue
+                time.sleep(0.2)
+
+            if l_buy_price > self.g_buy_hoga:
+                self.write_msg_log('해당 종목의 매수가가 최우선 매수호가보다 크므로 매수주문하지 않음')
                 continue
 
             self.g_flag_3 = 0
@@ -1148,6 +1231,32 @@ class WindowClass(QMainWindow, form_class):
         conn.close()
 
         return l_own_stock_cnt
+
+    # 미체결 매수주문 여부 가져오기
+    def get_buy_not_chegyul_yn(self, i_jongmok_cd):
+        conn = cx_Oracle.connect('ats', '1234', 'localhost:1521/xe', encoding='UTF-8', nencoding='UTF-8')
+        cur = conn.cursor()
+        now = QDate.currentDate()
+        l_buy_not_chegyul_ord_stock_cnt = 0
+        l_buy_not_chegyul_yn = None
+
+        # 주문내역과 체결내역 테이블 조회
+        sql_insert = "SELECT NVL(SUM(ORD_STOCK_CNT - CHEGYUL_STOCK_CNT), 0) BUY_NOT_CHEGYUL_ORD_STOCK_CNT FROM(SELECT ORD_STOCK_CNT ORD_STOCK_CNT, (SELECT NVL(MAX(b.CHEGYUL_STOCK_CNT), 0) CHEGYUL_STOCK_CNT FROM TB_CHEGYUL_LST b WHERE b.USER_ID = a.USER_ID AND b.ACCNT_NO = a.ACCNT_NO AND b.REF_DT = a.REF_DT AND b.JONGMOK_CD = a.JONGMOK_CD AND b.ORD_GB = a.ORD_GB AND b.ORD_NO = a.ORD_NO) CHEGYUL_STOCK_CNT FROM TB_ORD_LST a WHERE a.REF_DT = :1 AND a.USER_ID = :2 AND a.ACCNT_NO = :3 AND a.JONGMOK_CD = :4 AND a.ORD_GB = :5 AND a.ORG_ORD_NO = :6 AND NOT EXISTS(SELECT '1' FROM TB_ORD_LST b WHERE b.USER_ID = a.USER_ID AND b.ACCNT_NO = a.ACCNT_NO AND b.REF_DT = a.REF_DT AND b.JONGMOK_CD = a.JONGMOK_CD AND b.ORD_GB = a.ORD_GB AND b.ORG_ORD_NO = a.ORD_NO))x"
+        cur.execute(sql_insert, (now.toString('yyyyMMdd'), self.g_user_id, self.g_accnt_no, i_jongmok_cd, '2', '0000000'))
+
+        for row in cur:
+            l_buy_not_chegyul_ord_stock_cnt = int(str(row[0]))  # 미체결 매수주문 주식수 구하기
+
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        if l_buy_not_chegyul_ord_stock_cnt > 0:
+            l_buy_not_chegyul_yn = 'Y'
+        else:
+            l_buy_not_chegyul_yn = 'N'
+
+        return l_buy_not_chegyul_yn
 
 
 if __name__ == "__main__":
