@@ -63,8 +63,6 @@ class startThread(QThread):
             close_tm = cur_tm.replace(hour=15, minute=30, second=1)
             if cur_tm - pre_tm >= datetime.timedelta(seconds=1):  # 8시 30분 이후라면
                 # 계좌조회, 계좌정보 조회, 보유종목 매도주문 수행
-                print('주문 중')
-                # 계좌 조회, 계좌정보 조회, 보유종목 매도주문 수행
                 if set_tb_accnt_flag == 0:
                     set_tb_accnt_flag = 1
                     self.set_accnt_event.emit()  # 계좌정보 요청 이벤트
@@ -77,10 +75,8 @@ class startThread(QThread):
 
             if cur_tm - open_tm >= datetime.timedelta(seconds=1):  # 장 운영시간
                 while True:
-                    print('장 시작')
                     cur_tm = datetime.datetime.now()  # 현재시간 조회
                     if cur_tm - close_tm >= datetime.timedelta(seconds=1):  # 15시 30분 이후
-                        print('장 종료')
                         break
                     # 장 운영시간 중이므로 매수나 매도주문
                     self.real_buy_ord_event.emit()  # 실시간 매수주문 이벤트
@@ -158,6 +154,7 @@ class WindowClass(QMainWindow, form_class):
         self.start_thread.ord_first_event.connect(self.sell_ord_first)
         self.start_thread.real_buy_ord_event.connect(self.real_buy_ord)
         self.start_thread.real_sell_ord_event.connect(self.real_sell_ord)
+        self.start_thread.real_cut_loss_ord_event.connect(self.real_cut_loss_ord)
 
         # self.thread1 = QThread()  # 스레드 생성. 파라미터 self???
         # self.start_thread.moveToThread(self.thread1)  # 만들어둔 쓰레드에 넣는다
@@ -410,7 +407,7 @@ class WindowClass(QMainWindow, form_class):
                     self.write_msg_log('TB_TRD_JONGMOK 테이블이 변경되었습니다')
                 except Exception as ex:
                     self.write_err_log("insert TB_TRD_JONGMOK ex.Message : [" + str(ex) + "]")
-                    print("insert TB_TRD_JONGMOK ex.Message : [" + str(ex) + "]")
+
 
         cur.close()
         conn.close()
@@ -425,7 +422,6 @@ class WindowClass(QMainWindow, form_class):
                 # if self.tableWidget.item(row, 10).checkState() == Qt.Checked:  # cellWidget에 체크박스를 넣지 않고 테이블에 바로 넣었을 경우
                 user_id = self.g_user_id
                 jongmok_cd = str(self.tableWidget.item(row, 1).text())
-                print(str(self.tableWidget.item(row, 1).text()))
                 jongmok_nm = str(self.tableWidget.item(row, 2).text())
                 priority = int(self.tableWidget.item(row, 3).text())
                 buy_amt = int(self.tableWidget.item(row, 4).text())
@@ -439,18 +435,17 @@ class WindowClass(QMainWindow, form_class):
                     sql_insert = 'UPDATE TB_TRD_JONGMOK SET JONGMOK_NM=:JONGMOK_NM, PRIORITY=:PRIORITY, ' \
                                  'BUY_AMT=:BUY_AMT, BUY_PRICE=:BUY_PRICE, TARGET_PRICE=:TARGET_PRICE, ' \
                                  'CUT_LOSS_PRICE=:CUT_LOSS_PRICE, BUY_TRD_YN=:BUY_TRD_YN, SELL_TRD_YN=:SELL_TRD_YN, ' \
-                                 'UPDT_ID=:UPDT_ID, UPDT_DIM=:UPDT_DIM WHERE JONGMOK_CD = :jongmok_cd AND USER_ID = ' \
+                                 'UPDT_ID=:UPDT_ID, UPDT_DTM=:UPDT_DTM WHERE JONGMOK_CD = :jongmok_cd AND USER_ID = ' \
                                  ':user_id '
                     cur.execute(sql_insert, JONGMOK_NM=jongmok_nm,
                                 PRIORITY=priority, BUY_AMT=buy_amt, BUY_PRICE=buy_price, TARGET_PRICE=target_price,
                                 CUT_LOSS_PRICE=cut_loss_price, BUY_TRD_YN=buy_trd_yn, SELL_TRD_YN=sell_trd_yn,
-                                UPDT_ID=user_id, UPDT_DIM=datetime.datetime.now(), jongmok_cd=jongmok_cd,
+                                UPDT_ID=user_id, UPDT_DTM=datetime.datetime.now(), jongmok_cd=jongmok_cd,
                                 user_id=user_id)
                     conn.commit()
                     self.write_msg_log('TB_TRD_JONGMOK 테이블이 수정되었습니다')
                 except Exception as ex:
                     self.write_err_log("UPDATE TB_TRD_JONGMOK ex.Message : [" + str(ex) + "]")
-                    print("UPDATE TB_TRD_JONGMOK ex.Message : [" + str(ex) + "]")
 
         cur.close()
         conn.close()
@@ -474,7 +469,6 @@ class WindowClass(QMainWindow, form_class):
                     self.write_msg_log('종목코드 : [' + jongmok_cd + ']가 삭제되었습니다.')
                 except Exception as ex:
                     self.write_err_log("DELETE TB_TRD_JONGMOK ex.Message : [" + str(ex) + "]")
-                    print("DELETE TB_TRD_JONGMOK ex.Message : [" + str(ex) + "]")
 
         cur.close()
         conn.close()
@@ -952,15 +946,15 @@ class WindowClass(QMainWindow, form_class):
             sql_insert = "MERGE INTO TB_ACCNT_INFO a USING(SELECT NVL(MAX(USER_ID), '0') USER_ID, NVL(MAX(REF_DT), " \
                          "'0') REF_DT, NVL(MAX(JONGMOK_CD), '0') JONGMOK_CD, NVL(MAX(JONGMOK_NM), '0') JONGMOK_NM " \
                          "FROM TB_ACCNT_INFO WHERE USER_ID = :1 AND ACCNT_NO = :2 AND JONGMOK_CD = :3 AND REF_DT = " \
-                         ":4) b ON (a.USER.ID = b.USER_ID AND a.JONGMOK_CD = b.JONGMOK_CD AND a.REF_DT = b.REF_DT) " \
+                         ":4) b ON (a.USER_ID = b.USER_ID AND a.JONGMOK_CD = b.JONGMOK_CD AND a.REF_DT = b.REF_DT) " \
                          "WHEN MATCHED THEN UPDATE SET OWN_STOCK_CNT = :5, BUY_PRICE = :6, OWN_AMT = :7, UPDT_DTM = " \
                          ":8, UPDT_ID = :9 WHEN NOT MATCHED THEN INSERT(a.USER_ID, a.ACCNT_NO, a.REF_DT, " \
                          "a.JONGMOK_CD, a.JONGMOK_NM, a.BUY_PRICE, a.OWN_STOCK_CNT, a.OWN_AMT, a.INST_DTM, " \
-                         "a.INST_ID) VALUES(:10, :11, :12, :13, :14, :15, :16, :17, :18, 'ats') "
+                         "a.INST_ID) VALUES(:10, :11, :12, :13, :14, :15, :16, :17, :18, :19) "
             cur.execute(sql_insert, (
                 self.g_user_id, self.g_accnt_no, i_jongmok_cd, now.toString('yyyyMMdd'), i_boyu_cnt, i_boyu_price,
                 i_boyu_amt, datetime.datetime.now(), 'ats', self.g_user_id, self.g_accnt_no, now.toString('yyyyMMdd'),
-                i_jongmok_cd, i_jongmok_nm, i_boyu_price, i_boyu_cnt, i_boyu_amt, datetime.datetime.now()))
+                i_jongmok_cd, i_jongmok_nm, i_boyu_price, i_boyu_cnt, i_boyu_amt, datetime.datetime.now(), 'ats'))
             conn.commit()
         except Exception as ex:
             self.write_err_log("MERGE TB_ACCNT_INFO ex.Message : [" + str(ex) + "]")
@@ -1154,7 +1148,7 @@ class WindowClass(QMainWindow, form_class):
             while True:
                 self.g_rqname = ''
                 self.g_rqname = '호가조회'
-                self.g_flag_7 = 0
+                self.g_flag_7 = 1
                 self.kiwoom.dynamicCall(
                     "SetInputValue(QString, QString)", ['종목코드', l_jongmok_cd])
 
@@ -1402,7 +1396,7 @@ class WindowClass(QMainWindow, form_class):
 
             while True:
                 self.g_rqname = '현재가조회'
-                self.g_flag_6 = 0
+                self.g_flag_6 = 1
                 self.kiwoom.dynamicCall("SetInputValue(QString, QString)", ['종목코드', l_jongmok_cd])
 
                 l_scr_no = self.get_scr_no()
@@ -1438,6 +1432,7 @@ class WindowClass(QMainWindow, form_class):
                     time.sleep(0.2)
                     continue
                 time.sleep(0.2)
+
             if self.g_cur_price < l_cut_loss_price:  # 현재가가 손절가 이탈 시
                 self.sell_canc_ord(l_jongmok_cd)
 
@@ -1482,9 +1477,18 @@ class WindowClass(QMainWindow, form_class):
         cur = conn.cursor()
         now = QDate.currentDate()
 
-        sql_insert = "SELECT ROWID RID, JONGMOK_CD, (ORD_STOCK_CNT-(SELECT NVL(MAX(b.CHEGYUL_STOCK_CNT), 0) CHEGYUL_STOCK_CNT FROM TB_CHEGYUL_LST b WHERE b.USER_ID = a.USER_ID AND b.ACCNT_NO = a.ACCNT_NO AND b.REF_DT = a.REF_DT AND b.JONGMOK_CD = a.JONGMOK_CD AND b.ORD_GB = a.ORD_GB AND b.ORD_NO = a.ORD_NO)) SELL_NOT_CHEGYUL_ORD_STOCK_CNT, ORD_PRICE, ORD_NO, ORG_ORD_NO FROM TB_ORD_LST a WHERE a.REF_DT = :1 AND a.USER_ID = :2 AND a.ACCNT_NO = :3 a.JONGMOK_CD = :4 AND a.ORD_GB = :5 AND a.ORG_ORD_NO = :6 AND NOT EXISTS (SELECT '1' FROM TB_ORD_LST b WHERE b.USER_ID = a.USER_ID AND b.ACCNT_NO = a.ACCNT_NO AND b.REF_DT = a.REF_DT AND b.JONGMOK_CD = a.JONGMOK_CD AND b.ORD_GB = a.ORD_GB AND b.ORG_ORD_NO = a.ORD_NO)"
+        sql_insert = "SELECT ROWID RID, JONGMOK_CD, (ORD_STOCK_CNT - (SELECT NVL(MAX(b.CHEGYUL_STOCK_CNT), " \
+                     "0) CHEGYUL_STOCK_CNT FROM TB_CHEGYUL_LST b WHERE b.USER_ID = a.USER_ID AND b.ACCNT_NO = " \
+                     "a.ACCNT_NO AND b.REF_DT = a.REF_DT AND b.JONGMOK_CD = a.JONGMOK_CD AND b.ORD_GB = a.ORD_GB AND " \
+                     "b.ORD_NO = a.ORD_NO)) SELL_NOT_CHEGYUL_ORD_STOCK_CNT, ORD_PRICE, ORD_NO, ORG_ORD_NO FROM " \
+                     "TB_ORD_LST a WHERE a.REF_DT = :1 AND a.USER_ID = :2 AND a.ACCNT_NO = :3 AND a.JONGMOK_CD = :4 " \
+                     "AND " \
+                     "a.ORD_GB = :5 AND a.ORG_ORD_NO = :6 AND NOT EXISTS (SELECT '1' FROM TB_ORD_LST b WHERE " \
+                     "b.USER_ID = a.USER_ID AND b.ACCNT_NO = a.ACCNT_NO AND b.REF_DT = a.REF_DT AND b.JONGMOK_CD = " \
+                     "a.JONGMOK_CD AND b.ORD_GB = a.ORD_GB AND b.ORG_ORD_NO = a.ORD_NO) "
         cur.execute(sql_insert,
                     (now.toString('yyyyMMdd'), self.g_user_id, self.g_accnt_no, i_jongmok_cd, '1', '0000000'))
+
 
         for row in cur:
             l_rid = str(row[0]).strip()
