@@ -96,7 +96,7 @@ class WindowClass(QMainWindow, form_class):
         self.g_scr_no = 0  # Open API 요청번호
         self.g_user_id = None
         self.g_accnt_no = None
-        self.g_cur_price = 0
+        self.g_cur_price = sys.maxsize
 
         self.g_buy_hoga = 0  # 최우선 매수호가 저장 변수
 
@@ -407,7 +407,6 @@ class WindowClass(QMainWindow, form_class):
                     self.write_msg_log('TB_TRD_JONGMOK 테이블이 변경되었습니다')
                 except Exception as ex:
                     self.write_err_log("insert TB_TRD_JONGMOK ex.Message : [" + str(ex) + "]")
-
 
         cur.close()
         conn.close()
@@ -875,7 +874,13 @@ class WindowClass(QMainWindow, form_class):
         conn = cx_Oracle.connect('ats', '1234', 'localhost:1521/xe', encoding='UTF-8', nencoding='UTF-8')
         cur = conn.cursor()
         now = QDate.currentDate()
-
+        # print(self.g_user_id)
+        # print(self.g_accnt_no)
+        # print(i_ref_dt)
+        # print(i_jongmok_cd)
+        # print(i_ord_gb)
+        # print(i_ord_no)
+        # print(i_ord_dtm)
         try:
             sql_insert = "INSERT INTO TB_ORD_LST VALUES(:1, :2, :3, :4, :5, :6, :7, :8, :9, :10, :11, :12, 'ats', :13, NULL, NULL)"
             cur.execute(sql_insert, (
@@ -1252,7 +1257,14 @@ class WindowClass(QMainWindow, form_class):
         l_buy_not_chegyul_yn = None
 
         # 주문내역과 체결내역 테이블 조회
-        sql_insert = "SELECT NVL(SUM(ORD_STOCK_CNT - CHEGYUL_STOCK_CNT), 0) BUY_NOT_CHEGYUL_ORD_STOCK_CNT FROM(SELECT ORD_STOCK_CNT ORD_STOCK_CNT, (SELECT NVL(MAX(b.CHEGYUL_STOCK_CNT), 0) CHEGYUL_STOCK_CNT FROM TB_CHEGYUL_LST b WHERE b.USER_ID = a.USER_ID AND b.ACCNT_NO = a.ACCNT_NO AND b.REF_DT = a.REF_DT AND b.JONGMOK_CD = a.JONGMOK_CD AND b.ORD_GB = a.ORD_GB AND b.ORD_NO = a.ORD_NO) CHEGYUL_STOCK_CNT FROM TB_ORD_LST a WHERE a.REF_DT = :1 AND a.USER_ID = :2 AND a.ACCNT_NO = :3 AND a.JONGMOK_CD = :4 AND a.ORD_GB = :5 AND a.ORG_ORD_NO = :6 AND NOT EXISTS(SELECT '1' FROM TB_ORD_LST b WHERE b.USER_ID = a.USER_ID AND b.ACCNT_NO = a.ACCNT_NO AND b.REF_DT = a.REF_DT AND b.JONGMOK_CD = a.JONGMOK_CD AND b.ORD_GB = a.ORD_GB AND b.ORG_ORD_NO = a.ORD_NO))x"
+        sql_insert = "SELECT NVL(SUM(ORD_STOCK_CNT - CHEGYUL_STOCK_CNT), 0) BUY_NOT_CHEGYUL_ORD_STOCK_CNT FROM(SELECT " \
+                     "ORD_STOCK_CNT ORD_STOCK_CNT, (SELECT NVL(MAX(b.CHEGYUL_STOCK_CNT), 0) CHEGYUL_STOCK_CNT FROM " \
+                     "TB_CHEGYUL_LST b WHERE b.USER_ID = a.USER_ID AND b.ACCNT_NO = a.ACCNT_NO AND b.REF_DT = " \
+                     "a.REF_DT AND b.JONGMOK_CD = a.JONGMOK_CD AND b.ORD_GB = a.ORD_GB AND b.ORD_NO = a.ORD_NO) " \
+                     "CHEGYUL_STOCK_CNT FROM TB_ORD_LST a WHERE a.REF_DT = :1 AND a.USER_ID = :2 AND a.ACCNT_NO = :3 " \
+                     "AND a.JONGMOK_CD = :4 AND a.ORD_GB = :5 AND a.ORG_ORD_NO = :6 AND NOT EXISTS(SELECT '1' FROM " \
+                     "TB_ORD_LST b WHERE b.USER_ID = a.USER_ID AND b.ACCNT_NO = a.ACCNT_NO AND b.REF_DT = a.REF_DT " \
+                     "AND b.JONGMOK_CD = a.JONGMOK_CD AND b.ORD_GB = a.ORD_GB AND b.ORG_ORD_NO = a.ORD_NO))x "
         cur.execute(sql_insert,
                     (now.toString('yyyyMMdd'), self.g_user_id, self.g_accnt_no, i_jongmok_cd, '2', '0000000'))
 
@@ -1392,7 +1404,7 @@ class WindowClass(QMainWindow, form_class):
             self.write_msg_log('보유주식수 : [' + str(l_own_stock_cnt) + ']')
 
             l_for_flag = 0
-            self.g_cur_price = 0
+            self.g_cur_price = sys.maxsize
 
             while True:
                 self.g_rqname = '현재가조회'
@@ -1423,6 +1435,7 @@ class WindowClass(QMainWindow, form_class):
                                 continue
                 except Exception as ex:
                     self.write_err_log("real_cut_loss_ord() 현재가조회 ex.Message : [" + str(ex) + "]")
+                    print(str(ex))
 
                 self.kiwoom.dynamicCall("DisconnectRealData(QString)", l_scr_no)
 
@@ -1432,11 +1445,12 @@ class WindowClass(QMainWindow, form_class):
                     time.sleep(0.2)
                     continue
                 time.sleep(0.2)
-
+            print('현재가 : ' + str(self.g_cur_price))
+            print('손절가 : ' + str(l_cut_loss_price))
             if self.g_cur_price < l_cut_loss_price:  # 현재가가 손절가 이탈 시
                 self.sell_canc_ord(l_jongmok_cd)
 
-                self.g_flag_4 = 0
+                self.g_flag_4 = 1
                 self.g_rqname = '매도주문'
 
                 l_scr_no = self.get_scr_no()
@@ -1471,7 +1485,7 @@ class WindowClass(QMainWindow, form_class):
         cur.close()
         conn.close()
 
-    # 현재가가 손절가를 이탈하면 손절주문
+    # 현재가가 손절가를 이탈하면 손절주문 위해 매도주문 취소
     def sell_canc_ord(self, i_jongmok_cd):
         conn = cx_Oracle.connect('ats', '1234', 'localhost:1521/xe', encoding='UTF-8', nencoding='UTF-8')
         cur = conn.cursor()
@@ -1489,7 +1503,6 @@ class WindowClass(QMainWindow, form_class):
         cur.execute(sql_insert,
                     (now.toString('yyyyMMdd'), self.g_user_id, self.g_accnt_no, i_jongmok_cd, '1', '0000000'))
 
-
         for row in cur:
             l_rid = str(row[0]).strip()
             l_jongmok_cd = str(row[1]).strip()
@@ -1498,7 +1511,7 @@ class WindowClass(QMainWindow, form_class):
             l_ord_no = str(row[4]).strip()
             l_org_ord_no = str(row[5]).strip()
 
-            self.g_flag_5 = 0
+            self.g_flag_5 = 1
             self.g_rqname = '매도취소주문'
 
             l_scr_no = self.get_scr_no()
