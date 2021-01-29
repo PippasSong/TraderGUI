@@ -3,6 +3,7 @@ import os
 import cx_Oracle
 import datetime
 import time
+import cur_price as cp
 
 from PyQt5.QtCore import *
 from PyQt5.QtWidgets import *
@@ -82,9 +83,9 @@ class startThread(QThread):
                     self.real_buy_ord_event.emit()  # 실시간 매수주문 이벤트
                     time.sleep(10)
                     self.real_sell_ord_event.emit()  # 실시간 매도주문 이벤트
-                    time.sleep(0.2)
+                    time.sleep(10)
                     self.real_cut_loss_ord_event.emit()  # 실시간 손절주문 이벤트
-
+                    time.sleep(10)
             time.sleep(1)
 
 
@@ -163,6 +164,7 @@ class WindowClass(QMainWindow, form_class):
         self.kiwoom.OnReceiveTrData.connect(self.axKHOpenAPI1_OnReceiveTrData)
         self.kiwoom.OnReceiveMsg.connect(self.axKHOpenAPI1_OnReceiveMsg)
         self.kiwoom.OnReceiveChejanData.connect(self.axKHOpenAPI1_OnReceiveChejanData)
+        self.kiwoom.OnReceiveRealData.connect(self.axKHOpenAPI1_OnReceiveRealData)
 
         # 매수가능금액 데이터의 수신을 요청하고 수신 요청이 정상적으로 응답되는지 확인
         self.g_flag_1 = 0  # 1이면 요청에 대한 응답 완료
@@ -707,6 +709,17 @@ class WindowClass(QMainWindow, form_class):
             self.write_msg_log('보유금액 : [' + str(boyu_amt) + ']')
 
             self.merge_tb_accnt_info(jongmok_cd, l_jongmok_nm, boyu_cnt, boyu_price, boyu_amt)  # 계좌정보 저장
+
+    def axKHOpenAPI1_OnReceiveRealData(self, jongmok_cd, real_type, real_data):
+        print('요청')
+        if real_type == '현재가조회':
+            print('요청2')
+            # self.g_cur_price = int(self.kiwoom.dynamicCall("GetCommRealData(QString, int)",
+            #                                                [jongmok_cd, 10]).strip())
+            # self.g_cur_price = abs(self.g_cur_price)
+            # self.g_flag_6 = 1
+            print('realtype: ' + str(self.kiwoom.dynamicCall("GetCommRealData(QString, int)",
+                                                            [jongmok_cd, 10]).strip()))
 
     # 매수가능금액 요청
     @pyqtSlot()
@@ -1403,51 +1416,18 @@ class WindowClass(QMainWindow, form_class):
             self.write_msg_log('손절가 : [' + str(l_cut_loss_price) + ']')
             self.write_msg_log('보유주식수 : [' + str(l_own_stock_cnt) + ']')
 
-            l_for_flag = 0
+            self.g_flag_6 = 0
             self.g_cur_price = sys.maxsize
-
-            while True:
-                self.g_rqname = '현재가조회'
-                self.g_flag_6 = 1
-                self.kiwoom.dynamicCall("SetInputValue(QString, QString)", ['종목코드', l_jongmok_cd])
-
-                l_scr_no = self.get_scr_no()
-
-                # 현재가 조회 요청
-                self.kiwoom.dynamicCall("CommRqData(QString, QString, int, QString)",
-                                        [self.g_rqname, 'opt10001', 0, l_scr_no])
-                try:
-                    l_for_cnt = 0
-                    while True:
-                        if self.g_flag_6 == 1:
-                            time.sleep(0.2)
-                            self.kiwoom.dynamicCall("DisconnectRealData(QString)", l_scr_no)
-                            l_for_flag = 1
-                            break
-                        else:
-                            self.write_msg_log('현재가조회 완료 대기 중')
-                            time.sleep(0.2)
-                            l_for_cnt += 1
-                            if l_for_cnt == 5:
-                                l_for_flag = 0
-                                break
-                            else:
-                                continue
-                except Exception as ex:
-                    self.write_err_log("real_cut_loss_ord() 현재가조회 ex.Message : [" + str(ex) + "]")
-                    print(str(ex))
-
-                self.kiwoom.dynamicCall("DisconnectRealData(QString)", l_scr_no)
-
-                if l_for_flag == 1:
-                    break
-                elif l_for_flag == 0:
-                    time.sleep(0.2)
-                    continue
+            cp.Cur_price.get_cur_price(self, l_jongmok_cd)  # 현재가 요청
+            print('flag: ' + str(self.g_flag_6))
+            while self.g_flag_6 != 1:  # 현재가 받아오기 전까지 대기
+                print('ㅁㅁㅁ : ' + str(self.g_cur_price))
                 time.sleep(0.2)
+                continue
+
             print('현재가 : ' + str(self.g_cur_price))
             print('손절가 : ' + str(l_cut_loss_price))
-            if self.g_cur_price < l_cut_loss_price:  # 현재가가 손절가 이탈 시
+            if self.g_cur_price < l_cut_loss_price and self.g_flag_6 == 1:  # 현재가가 손절가 이탈 시
                 self.sell_canc_ord(l_jongmok_cd)
 
                 self.g_flag_4 = 1
