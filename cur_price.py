@@ -89,7 +89,7 @@ class Cur_price():
         #     time.sleep(0.2)
         #     continue
         # time.sleep(0.2)
-        time.sleep(0.5)
+        time.sleep(0.2)
 
         self.kiwoom.dynamicCall("DisconnectRealData(QString)", l_scr_no)
         # return self.g_cur_price2

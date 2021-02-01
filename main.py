@@ -79,13 +79,22 @@ class startThread(QThread):
                     cur_tm = datetime.datetime.now()  # 현재시간 조회
                     if cur_tm - close_tm >= datetime.timedelta(seconds=1):  # 15시 30분 이후
                         break
-                    # 장 운영시간 중이므로 매수나 매도주문
-                    self.real_buy_ord_event.emit()  # 실시간 매수주문 이벤트
-                    time.sleep(10)
-                    self.real_sell_ord_event.emit()  # 실시간 매도주문 이벤트
-                    time.sleep(10)
-                    self.real_cut_loss_ord_event.emit()  # 실시간 손절주문 이벤트
-                    time.sleep(10)
+                    try:
+                        # 장 운영시간 중이므로 매수나 매도주문
+                        print('매수시작')
+                        self.real_buy_ord_event.emit()  # 실시간 매수주문 이벤트
+                        time.sleep(0.2)
+                        print('매수종료')
+                        print('매도시작')
+                        self.real_sell_ord_event.emit()  # 실시간 매도주문 이벤트
+                        time.sleep(1)
+                        print('매도종료')
+                        print('손절시작')
+                        self.real_cut_loss_ord_event.emit()  # 실시간 손절주문 이벤트
+                        time.sleep(5)
+                        print('손절종료')
+                    except Exception as ex:
+                        print(str(ex))
             time.sleep(1)
 
 
@@ -164,7 +173,7 @@ class WindowClass(QMainWindow, form_class):
         self.kiwoom.OnReceiveTrData.connect(self.axKHOpenAPI1_OnReceiveTrData)
         self.kiwoom.OnReceiveMsg.connect(self.axKHOpenAPI1_OnReceiveMsg)
         self.kiwoom.OnReceiveChejanData.connect(self.axKHOpenAPI1_OnReceiveChejanData)
-        self.kiwoom.OnReceiveRealData.connect(self.axKHOpenAPI1_OnReceiveRealData)
+        # self.kiwoom.OnReceiveRealData.connect(self.axKHOpenAPI1_OnReceiveRealData)
 
         # 매수가능금액 데이터의 수신을 요청하고 수신 요청이 정상적으로 응답되는지 확인
         self.g_flag_1 = 0  # 1이면 요청에 대한 응답 완료
@@ -710,16 +719,16 @@ class WindowClass(QMainWindow, form_class):
 
             self.merge_tb_accnt_info(jongmok_cd, l_jongmok_nm, boyu_cnt, boyu_price, boyu_amt)  # 계좌정보 저장
 
-    def axKHOpenAPI1_OnReceiveRealData(self, jongmok_cd, real_type, real_data):
-        print('요청')
-        if real_type == '현재가조회':
-            print('요청2')
-            # self.g_cur_price = int(self.kiwoom.dynamicCall("GetCommRealData(QString, int)",
-            #                                                [jongmok_cd, 10]).strip())
-            # self.g_cur_price = abs(self.g_cur_price)
-            # self.g_flag_6 = 1
-            print('realtype: ' + str(self.kiwoom.dynamicCall("GetCommRealData(QString, int)",
-                                                            [jongmok_cd, 10]).strip()))
+    # def axKHOpenAPI1_OnReceiveRealData(self, jongmok_cd, real_type, real_data):
+    #     print('요청')
+    #     if real_type == '현재가조회':
+    #         print('요청2')
+    #         # self.g_cur_price = int(self.kiwoom.dynamicCall("GetCommRealData(QString, int)",
+    #         #                                                [jongmok_cd, 10]).strip())
+    #         # self.g_cur_price = abs(self.g_cur_price)
+    #         # self.g_flag_6 = 1
+    #         print('realtype: ' + str(self.kiwoom.dynamicCall("GetCommRealData(QString, int)",
+    #                                                         [jongmok_cd, 10]).strip()))
 
     # 매수가능금액 요청
     @pyqtSlot()
@@ -1422,8 +1431,12 @@ class WindowClass(QMainWindow, form_class):
             print('flag: ' + str(self.g_flag_6))
             while self.g_flag_6 != 1:  # 현재가 받아오기 전까지 대기
                 print('ㅁㅁㅁ : ' + str(self.g_cur_price))
-                time.sleep(0.2)
-                continue
+                conn.commit()
+                cur.close()
+                conn.close()
+                return
+                # time.sleep(0.2)
+                # continue
 
             print('현재가 : ' + str(self.g_cur_price))
             print('손절가 : ' + str(l_cut_loss_price))
