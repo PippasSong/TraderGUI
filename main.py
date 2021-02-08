@@ -3,6 +3,7 @@ import os
 import cx_Oracle
 import datetime
 import time
+import re
 import cur_price as cp
 
 from PyQt5.QtCore import *
@@ -31,17 +32,22 @@ os.environ["PATH"] = LOCATION + ";" + os.environ["PATH"]
 # 오라클 한글 지원
 os.putenv('NLS_LANG', '.UTF8')
 
+# 실시간 데이터 플래그
+g_real_flag = 0
+
 
 class startThread(QThread):
     # 쓰레드의 커스텀 이벤트
     # 데이터 전달 시 형을 명시해야 함
     threadEvent = pyqtSignal(str)
+    get_tb_trd_data_event = pyqtSignal()
     set_accnt_event = pyqtSignal()
     set_accnt_info_event = pyqtSignal()
     ord_first_event = pyqtSignal()
     real_buy_ord_event = pyqtSignal()
     real_sell_ord_event = pyqtSignal()
     real_cut_loss_ord_event = pyqtSignal()
+    req_real_data_event = pyqtSignal()
 
     def __init__(self, parent=None):  # 외부 클래스의 메소드를 사용하기 위해 파라미터로 outer_instance를 받는다
         # super().__init__()
@@ -56,46 +62,75 @@ class startThread(QThread):
         set_tb_accnt_flag = 0  # 1이면 호출 완료
         set_tb_accnt_info_flag = 0  # 1이면 호출 완료
         sell_ord_first_flag = 0  # 1이면 호출 완료
+        global g_real_flag
+        g_real_flag = 0
 
-        while True:
+        # while True:
+        #     cur_tm = datetime.datetime.now()  # 현재시간 조회
+        #     pre_tm = cur_tm.replace(hour=8, minute=30, second=1)
+        #     open_tm = cur_tm.replace(hour=9, minute=0, second=1)
+        #     close_tm = cur_tm.replace(hour=15, minute=30, second=1)
+        #     if cur_tm - pre_tm >= datetime.timedelta(seconds=1):  # 8시 30분 이후라면
+        #         # 계좌조회, 계좌정보 조회, 보유종목 매도주문 수행
+        #         if set_tb_accnt_flag == 0:
+        #             set_tb_accnt_flag = 1
+        #             self.set_accnt_event.emit()  # 계좌정보 요청 이벤트
+        #         if set_tb_accnt_info_flag == 0:
+        #             self.set_accnt_info_event.emit()  # 계좌정보 조회 요청 이벤트
+        #             set_tb_accnt_info_flag = 1
+        #         if sell_ord_first_flag == 0:
+        #             self.ord_first_event.emit()  # 보유종목 매도 이벤트
+        #             sell_ord_first_flag = 1
+        #
+        #     if cur_tm - open_tm >= datetime.timedelta(seconds=1):  # 장 운영시간
+        #         while True:
+        #             cur_tm = datetime.datetime.now()  # 현재시간 조회
+        #             if cur_tm - close_tm >= datetime.timedelta(seconds=1):  # 15시 30분 이후
+        #                 break
+        #             # 장 운영시간 중이므로 매수나 매도주문
+        #             print('매수시작')
+        #             # self.real_buy_ord_event.emit()  # 실시간 매수주문 이벤트
+        #             # time.sleep(0.2)
+        #             # print('매수종료')
+        #             # print('매도시작')
+        #             # self.real_sell_ord_event.emit()  # 실시간 매도주문 이벤트
+        #             time.sleep(1)
+        #             print('매도종료')
+        #             print('손절시작')
+        #             # self.real_cut_loss_ord_event.emit()  # 실시간 손절주문 이벤트
+        #             # time.sleep(5)
+        #             # print('손절종료')
+        #
+        #     time.sleep(1)
+
+        # g_map_tb갱신 요청 이벤트
+        self.get_tb_trd_data_event.emit()
+        if set_tb_accnt_flag == 0:
+            set_tb_accnt_flag = 1
+            self.set_accnt_event.emit()  # 계좌정보 요청 이벤트
+        if set_tb_accnt_info_flag == 0:
+            self.set_accnt_info_event.emit()  # 계좌정보 조회 요청 이벤트
+            set_tb_accnt_info_flag = 1
+
+        self.req_real_data_event.emit()
+
+        cur_tm = datetime.datetime.now()  # 현재시간 조회
+        pre_tm = cur_tm.replace(hour=8, minute=30, second=1)
+        open_tm = cur_tm.replace(hour=9, minute=0, second=1)
+        close_tm = cur_tm.replace(hour=15, minute=30, second=1)
+        if cur_tm - pre_tm >= datetime.timedelta(seconds=1):  # 8시 30분 이후라면
+            if sell_ord_first_flag == 0:
+                self.ord_first_event.emit()  # 보유종목 매도 이벤트
+                sell_ord_first_flag = 1
+        if cur_tm - open_tm >= datetime.timedelta(seconds=1):  # 장 운영시간
             cur_tm = datetime.datetime.now()  # 현재시간 조회
-            pre_tm = cur_tm.replace(hour=8, minute=30, second=1)
-            open_tm = cur_tm.replace(hour=9, minute=0, second=1)
-            close_tm = cur_tm.replace(hour=15, minute=30, second=1)
-            if cur_tm - pre_tm >= datetime.timedelta(seconds=1):  # 8시 30분 이후라면
-                # 계좌조회, 계좌정보 조회, 보유종목 매도주문 수행
-                if set_tb_accnt_flag == 0:
-                    set_tb_accnt_flag = 1
-                    self.set_accnt_event.emit()  # 계좌정보 요청 이벤트
-                if set_tb_accnt_info_flag == 0:
-                    self.set_accnt_info_event.emit()  # 계좌정보 조회 요청 이벤트
-                    set_tb_accnt_info_flag = 1
-                if sell_ord_first_flag == 0:
-                    self.ord_first_event.emit()  # 보유종목 매도 이벤트
-                    sell_ord_first_flag = 1
-
-            if cur_tm - open_tm >= datetime.timedelta(seconds=1):  # 장 운영시간
-                while True:
-                    cur_tm = datetime.datetime.now()  # 현재시간 조회
-                    if cur_tm - close_tm >= datetime.timedelta(seconds=1):  # 15시 30분 이후
-                        break
-                    try:
-                        # 장 운영시간 중이므로 매수나 매도주문
-                        print('매수시작')
-                        self.real_buy_ord_event.emit()  # 실시간 매수주문 이벤트
-                        time.sleep(0.2)
-                        print('매수종료')
-                        print('매도시작')
-                        self.real_sell_ord_event.emit()  # 실시간 매도주문 이벤트
-                        time.sleep(1)
-                        print('매도종료')
-                        print('손절시작')
-                        self.real_cut_loss_ord_event.emit()  # 실시간 손절주문 이벤트
-                        time.sleep(5)
-                        print('손절종료')
-                    except Exception as ex:
-                        print(str(ex))
-            time.sleep(1)
+            if cur_tm - close_tm >= datetime.timedelta(seconds=1):  # 15시 30분 이후
+                return
+            while True:
+                if g_real_flag == 1:
+                    # 장 운영시간 중이므로 매수나 매도주문
+                    self.real_buy_ord_event.emit()  # 실시간 매수주문 이벤트
+                    time.sleep(0.2)
 
 
 # 화면을 띄우는데 사용되는 Class 선언
@@ -107,6 +142,9 @@ class WindowClass(QMainWindow, form_class):
         self.g_user_id = None
         self.g_accnt_no = None
         self.g_cur_price = sys.maxsize
+        self.g_accnt_info = None
+        self.g_map = {}
+        self.g_map_tb = {}
 
         self.g_buy_hoga = 0  # 최우선 매수호가 저장 변수
 
@@ -165,6 +203,8 @@ class WindowClass(QMainWindow, form_class):
         self.start_thread.real_buy_ord_event.connect(self.real_buy_ord)
         self.start_thread.real_sell_ord_event.connect(self.real_sell_ord)
         self.start_thread.real_cut_loss_ord_event.connect(self.real_cut_loss_ord)
+        self.start_thread.req_real_data_event.connect(self.req_real_data)
+        self.start_thread.get_tb_trd_data_event.connect(self.get_tb_trd_data)
 
         # self.thread1 = QThread()  # 스레드 생성. 파라미터 self???
         # self.start_thread.moveToThread(self.thread1)  # 만들어둔 쓰레드에 넣는다
@@ -173,7 +213,7 @@ class WindowClass(QMainWindow, form_class):
         self.kiwoom.OnReceiveTrData.connect(self.axKHOpenAPI1_OnReceiveTrData)
         self.kiwoom.OnReceiveMsg.connect(self.axKHOpenAPI1_OnReceiveMsg)
         self.kiwoom.OnReceiveChejanData.connect(self.axKHOpenAPI1_OnReceiveChejanData)
-        # self.kiwoom.OnReceiveRealData.connect(self.axKHOpenAPI1_OnReceiveRealData)
+        self.kiwoom.OnReceiveRealData.connect(self.axKHOpenAPI1_OnReceiveRealData)
 
         # 매수가능금액 데이터의 수신을 요청하고 수신 요청이 정상적으로 응답되는지 확인
         self.g_flag_1 = 0  # 1이면 요청에 대한 응답 완료
@@ -496,6 +536,7 @@ class WindowClass(QMainWindow, form_class):
         try:
             self.start_thread.terminate()  # 현재 돌아가는 쓰레드 종료
             self.start_thread.wait()  # 새롭게 쓰레드를 대기시킴
+            self.kiwoom.dynamicCall('SetRealRemove(QString, QString)', 'ALL', 'ALL')  # 실시간 구독 해지
         except Exception as ex:
             self.write_err_log('자동매매 중지 ex.Message : ' + str(ex))
 
@@ -561,10 +602,15 @@ class WindowClass(QMainWindow, form_class):
                 own_stock_cnt = int(
                     self.kiwoom.dynamicCall("CommGetData(QString, QString, QString, int, QString)", trcode, '', rqname,
                                             ii, '보유수량').strip())
+                # 모의투자용
                 buy_price = int(
                     self.kiwoom.dynamicCall("CommGetData(QString, QString, QString, int, QString)", [trcode, '', rqname,
                                                                                                      ii, '평균단가']).strip(
                         '0').rstrip('.'))
+                # buy_price = int(
+                #     self.kiwoom.dynamicCall("CommGetData(QString, QString, QString, int, QString)", [trcode, '', rqname,
+                #                                                                                      ii, '평균단가']).strip(
+                #     ))
                 own_amt = int(
                     self.kiwoom.dynamicCall("CommGetData(QString, QString, QString, int, QString)", trcode, '', rqname,
                                             ii, '매입금액').strip())
@@ -701,6 +747,9 @@ class WindowClass(QMainWindow, form_class):
                 self.insert_tb_chegyul_lst(ref_dt, jongmok_cd, jongmok_nm, chegyul_gb, chegyul_no, chegyul_price,
                                            chegyul_cnt, chegyul_amt, chegyul_dtm, ord_no, org_ord_no)  # 체결내역 저장
 
+                # 손절주문 목록에 매수항목을 포함
+                self.req_real_data()
+
                 if chegyul_gb == '1':  # 매도체결이라면 계좌 테이블의 매수가능금액을 늘려줌
                     self.update_tb_accnt(chegyul_gb, chegyul_amt)
         if gubun == '1':  # 계좌정보 수신
@@ -719,16 +768,39 @@ class WindowClass(QMainWindow, form_class):
 
             self.merge_tb_accnt_info(jongmok_cd, l_jongmok_nm, boyu_cnt, boyu_price, boyu_amt)  # 계좌정보 저장
 
-    # def axKHOpenAPI1_OnReceiveRealData(self, jongmok_cd, real_type, real_data):
-    #     print('요청')
-    #     if real_type == '현재가조회':
-    #         print('요청2')
-    #         # self.g_cur_price = int(self.kiwoom.dynamicCall("GetCommRealData(QString, int)",
-    #         #                                                [jongmok_cd, 10]).strip())
-    #         # self.g_cur_price = abs(self.g_cur_price)
-    #         # self.g_flag_6 = 1
-    #         print('realtype: ' + str(self.kiwoom.dynamicCall("GetCommRealData(QString, int)",
-    #                                                         [jongmok_cd, 10]).strip()))
+    def axKHOpenAPI1_OnReceiveRealData(self, jongmok_cd, real_type, real_data):
+        # print(jongmok_cd, real_type, real_data)
+        global g_real_flag
+        for l_jongmok_cd in self.g_accnt_info:
+            if l_jongmok_cd == jongmok_cd and real_type == '주식체결':
+                l_cur_price = self.get_comm_real_date(l_jongmok_cd, '10')  # 현재가
+                l_bid_price = self.get_comm_real_date(l_jongmok_cd, '28')  # 최우선 매수호가
+                l_cur_price = re.sub('[-+]', '', l_cur_price)
+                l_cur_price = int(l_cur_price)
+                l_bid_price = re.sub('[-+]', '', l_bid_price)
+                l_bid_price = int(l_bid_price)
+                print(l_jongmok_cd + ' 현재가 : ' + str(l_cur_price))
+                print(l_jongmok_cd + ' 매수호가 : ' + str(l_bid_price))
+
+                #  매수호가용 dictionary 갱신
+                self.g_map_tb = {l_jongmok_cd: [l_bid_price]}
+
+                if self.g_map.get(l_jongmok_cd)[0] > l_cur_price:
+                    print('손절')
+                    self.real_cut_loss_ord(l_jongmok_cd, l_cur_price)
+
+                print(self.g_map)
+
+        # 모든 종목의 매수호가를 구한 경우
+        l_dict_keys = self.g_map_tb.keys()
+        for key in l_dict_keys:
+            if self.g_map_tb.get(key) is None:
+                g_real_flag = 0
+                break
+            else:
+                g_real_flag = 1
+
+        print(g_real_flag)
 
     # 매수가능금액 요청
     @pyqtSlot()
@@ -1140,7 +1212,7 @@ class WindowClass(QMainWindow, form_class):
         cur = conn.cursor()
         now = QDate.currentDate()
 
-        # 두 테이블을 조인하여 매도대상 종목 조회
+        # 두 테이블을 조인하여 매수대상 종목 조회
         sql_insert = "SELECT A.JONGMOK_CD, A.BUY_AMT, A.BUY_PRICE FROM TB_TRD_JONGMOK A WHERE A.USER_ID = :USER_ID AND A.BUY_TRD_YN = 'Y' ORDER BY A.PRIORITY"
         cur.execute(sql_insert, USER_ID=self.g_user_id)
         for row in cur:
@@ -1158,6 +1230,7 @@ class WindowClass(QMainWindow, form_class):
             l_own_stock_cnt = 0
             l_own_stock_cnt = self.get_own_stock_cnt(l_jongmok_cd)  # 해당 종목 보유주식수 구하기
             self.write_msg_log('보유주식수 : [' + str(l_own_stock_cnt) + ']')
+
             # 이 부분 수정해서 태이블에서 수정하면 추가매수 할 수 있게 하기
             if l_own_stock_cnt > 0:
                 self.write_msg_log('해당 종목을 보유 중이므로 매수하지 않음')
@@ -1171,48 +1244,48 @@ class WindowClass(QMainWindow, form_class):
 
             l_for_flag = 0
             l_for_cnt = 0
-            self.g_buy_hoga = 0
-            while True:
-                self.g_rqname = ''
-                self.g_rqname = '호가조회'
-                self.g_flag_7 = 1
-                self.kiwoom.dynamicCall(
-                    "SetInputValue(QString, QString)", ['종목코드', l_jongmok_cd])
+            # self.g_buy_hoga = 0
+            # while True:
+            #     self.g_rqname = ''
+            #     self.g_rqname = '호가조회'
+            #     self.g_flag_7 = 1
+            #     self.kiwoom.dynamicCall(
+            #         "SetInputValue(QString, QString)", ['종목코드', l_jongmok_cd])
+            #
+            #     l_scr_no_2 = self.get_scr_no()
+            #     self.kiwoom.dynamicCall(
+            #         "CommRqData(QString, QString, int, QString)", ['호가조회', 'opt10004', 0, l_scr_no_2])
+            #
+            #     try:
+            #         l_for_cnt = 0
+            #         while True:
+            #             if self.g_flag_7 == 1:
+            #                 time.sleep(0.2)
+            #                 self.kiwoom.dynamicCall("DisconnectRealData(QString)", l_scr_no_2)
+            #                 l_for_flag = 1
+            #                 break
+            #             else:
+            #                 self.write_msg_log('호가조회 완료 대기 중')
+            #                 time.sleep(0.2)
+            #                 l_for_cnt += 1
+            #                 if l_for_cnt == 5:
+            #                     l_for_flag = 0
+            #                     break
+            #                 else:
+            #                     continue
+            #     except Exception as ex:
+            #         self.write_err_log("real_buy_ord() 호가조회 ex.Message : [" + str(ex) + "]")
+            #
+            #     self.kiwoom.dynamicCall("DisconnectRealData(QString)", l_scr_no_2)
+            #
+            #     if l_for_flag == 1:
+            #         break
+            #     elif l_for_flag == 0:
+            #         time.sleep(0.2)
+            #         continue
+            #     time.sleep(0.2)
 
-                l_scr_no_2 = self.get_scr_no()
-                self.kiwoom.dynamicCall(
-                    "CommRqData(QString, QString, int, QString)", ['호가조회', 'opt10004', 0, l_scr_no_2])
-
-                try:
-                    l_for_cnt = 0
-                    while True:
-                        if self.g_flag_7 == 1:
-                            time.sleep(0.2)
-                            self.kiwoom.dynamicCall("DisconnectRealData(QString)", l_scr_no_2)
-                            l_for_flag = 1
-                            break
-                        else:
-                            self.write_msg_log('호가조회 완료 대기 중')
-                            time.sleep(0.2)
-                            l_for_cnt += 1
-                            if l_for_cnt == 5:
-                                l_for_flag = 0
-                                break
-                            else:
-                                continue
-                except Exception as ex:
-                    self.write_err_log("real_buy_ord() 호가조회 ex.Message : [" + str(ex) + "]")
-
-                self.kiwoom.dynamicCall("DisconnectRealData(QString)", l_scr_no_2)
-
-                if l_for_flag == 1:
-                    break
-                elif l_for_flag == 0:
-                    time.sleep(0.2)
-                    continue
-                time.sleep(0.2)
-
-            if l_buy_price > self.g_buy_hoga:
+            if l_buy_price > self.g_map_tb.get(l_jongmok_cd)[0]:
                 self.write_msg_log('해당 종목의 매수가가 최우선 매수호가보다 크므로 매수주문하지 않음')
                 continue
 
@@ -1250,6 +1323,7 @@ class WindowClass(QMainWindow, form_class):
         conn.commit()
         cur.close()
         conn.close()
+        print('완료')
 
     # 보유주식수 구하기(이미 보유한 주식이라면 매수주문을 내지 않는다)
     def get_own_stock_cnt(self, i_jongmok_cd):
@@ -1404,7 +1478,7 @@ class WindowClass(QMainWindow, form_class):
         return l_sell_not_chegyul_ord_stock_cnt
 
     # 실시간 손절주문
-    def real_cut_loss_ord(self):
+    def real_cut_loss_ord(self, jongmok_cd, l_cur_price):
         conn = cx_Oracle.connect('ats', '1234', 'localhost:1521/xe', encoding='UTF-8', nencoding='UTF-8')
         cur = conn.cursor()
         now = QDate.currentDate()
@@ -1414,34 +1488,14 @@ class WindowClass(QMainWindow, form_class):
                      "WHERE A.USER_ID = :1 AND A.JONGMOK_CD = B.JONGMOK_CD AND B.ACCNT_NO = :2 AND B.REF_DT = :3 " \
                      "AND A.SELL_TRD_YN = :4 AND B.OWN_STOCK_CNT > :5 "
         cur.execute(sql_insert, (self.g_user_id, self.g_accnt_no, now.toString('yyyyMMdd'), 'Y', 0))
-
+        l_scr_no_g = self.get_scr_no()
         for row in cur:
             l_jongmok_cd = str(row[0]).strip()
             l_cut_loss_price = int(str(row[1]).strip())
             l_own_stock_cnt = int(str(row[2]).strip())
 
-            self.write_msg_log('종목코드 : [' + l_jongmok_cd + ']')
-            self.write_msg_log('종목명 : [' + self.get_jongmok_nm(l_jongmok_cd) + ']')
-            self.write_msg_log('손절가 : [' + str(l_cut_loss_price) + ']')
-            self.write_msg_log('보유주식수 : [' + str(l_own_stock_cnt) + ']')
-
-            self.g_flag_6 = 0
-            self.g_cur_price = sys.maxsize
-            cp.Cur_price.get_cur_price(self, l_jongmok_cd)  # 현재가 요청
-            print('flag: ' + str(self.g_flag_6))
-            while self.g_flag_6 != 1:  # 현재가 받아오기 전까지 대기
-                print('ㅁㅁㅁ : ' + str(self.g_cur_price))
-                conn.commit()
-                cur.close()
-                conn.close()
-                return
-                # time.sleep(0.2)
-                # continue
-
-            print('현재가 : ' + str(self.g_cur_price))
-            print('손절가 : ' + str(l_cut_loss_price))
-            if self.g_cur_price < l_cut_loss_price and self.g_flag_6 == 1:  # 현재가가 손절가 이탈 시
-                self.sell_canc_ord(l_jongmok_cd)
+            if l_cur_price < l_cut_loss_price and jongmok_cd == l_jongmok_cd:  # 현재가가 손절가 이탈 시
+                self.sell_canc_ord(l_jongmok_cd)  # 매도취소주문
 
                 self.g_flag_4 = 1
                 self.g_rqname = '매도주문'
@@ -1473,6 +1527,10 @@ class WindowClass(QMainWindow, form_class):
                 self.kiwoom.dynamicCall("DisconnectRealData(QString)", l_scr_no)
 
                 self.update_tb_trd_jongmok(l_jongmok_cd)
+
+        # 손절대상을 제외하고 현재가 구하기
+        self.kiwoom.dynamicCall('SetRealRemove(QString, QString)', 'ALL', 'ALL')  # 실시간 구독 해지
+        self.req_real_data()
 
         conn.commit()
         cur.close()
@@ -1552,6 +1610,82 @@ class WindowClass(QMainWindow, form_class):
                         (datetime.datetime.now(), self.g_user_id, i_jongmok_cd))
         except Exception as ex:
             self.write_err_log("UPDATE TB_TRD_JONGMOK ex.Message : [" + str(ex) + "]")
+
+        conn.commit()
+        cur.close()
+        conn.close()
+
+    # 실시간 정보조회 요청 메소드
+    def set_real_reg(self, screen_no, code_list, fid_list, real_type):
+        self.kiwoom.dynamicCall("SetRealReg(QString, QString, QString, QString)", screen_no, code_list, fid_list,
+                                real_type)
+
+    # 실시간 정보조회 조회 메소드
+    def get_comm_real_date(self, code, fid):
+        data = self.kiwoom.dynamicCall("GetCommRealData(QString, int)", code, fid)
+        return data
+
+    # 테이블 데이터 실시간 정보조회 요청
+    def req_real_data(self):
+        conn = cx_Oracle.connect('ats', '1234', 'localhost:1521/xe', encoding='UTF-8', nencoding='UTF-8')
+        cur = conn.cursor()
+        now = QDate.currentDate()
+
+        # 거래정보 및 계좌정보 테이블 조회
+        sql_insert = "SELECT A.JONGMOK_CD, A.CUT_LOSS_PRICE, B.OWN_STOCK_CNT FROM TB_TRD_JONGMOK A, TB_ACCNT_INFO B " \
+                     "WHERE A.USER_ID = :1 AND A.JONGMOK_CD = B.JONGMOK_CD AND B.ACCNT_NO = :2 AND B.REF_DT = :3 " \
+                     "AND A.SELL_TRD_YN = :4 AND B.OWN_STOCK_CNT > :5 "
+        cur.execute(sql_insert, (self.g_user_id, self.g_accnt_no, now.toString('yyyyMMdd'), 'Y', 0))
+
+        l_scr_no_g = self.get_scr_no()
+        q_str = ""
+        self.g_map = {}
+
+        for row in cur:
+            l_jongmok_cd = str(row[0]).strip()
+            l_cut_loss_price = int(str(row[1]).strip())
+            l_own_stock_cnt = int(str(row[2]).strip())
+            q_str = q_str + l_jongmok_cd + ';'
+
+            self.g_map[l_jongmok_cd] = [l_cut_loss_price]
+
+            self.write_msg_log('종목코드 : [' + l_jongmok_cd + ']')
+            self.write_msg_log('종목명 : [' + self.get_jongmok_nm(l_jongmok_cd) + ']')
+            self.write_msg_log('손절가 : [' + str(l_cut_loss_price) + ']')
+            self.write_msg_log('보유주식수 : [' + str(l_own_stock_cnt) + ']')
+
+        q_str = q_str.rstrip(';')
+        self.set_real_reg(l_scr_no_g, q_str, '10;28', '1')  # 실시간 데이터 조회 추가요청
+        self.g_accnt_info = q_str.split(';')
+        print(self.g_accnt_info)
+
+        conn.commit()
+        cur.close()
+        conn.close()
+
+    # 테이블에서 매수할 종목의 코드를 g_map_tb에 갱신
+    def get_tb_trd_data(self):
+        conn = cx_Oracle.connect('ats', '1234', 'localhost:1521/xe', encoding='UTF-8', nencoding='UTF-8')
+        cur = conn.cursor()
+
+        # 거래정보 및 계좌정보 테이블 조회
+        sql_insert = "SELECT JONGMOK_CD FROM TB_TRD_JONGMOK"
+
+        cur.execute(sql_insert)
+
+        l_scr_no_g = self.get_scr_no()
+        q_str = ""
+        self.g_map_tb = {}
+
+        for row in cur:
+            l_jongmok_cd = str(row[0]).strip()
+            q_str = q_str + l_jongmok_cd + ';'
+
+            self.g_map_tb[l_jongmok_cd] = None
+
+        q_str = q_str.rstrip(';')
+        self.set_real_reg(l_scr_no_g, q_str, '10;28', '0')  # 실시간 데이터 조회 요청
+        print(self.g_map_tb)
 
         conn.commit()
         cur.close()
