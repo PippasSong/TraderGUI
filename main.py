@@ -34,6 +34,7 @@ os.putenv('NLS_LANG', '.UTF8')
 
 # 실시간 데이터 플래그
 g_real_flag = 0
+g_real_flag_cut_loss = 0
 
 
 class startThread(QThread):
@@ -63,7 +64,9 @@ class startThread(QThread):
         set_tb_accnt_info_flag = 0  # 1이면 호출 완료
         sell_ord_first_flag = 0  # 1이면 호출 완료
         global g_real_flag
+        global g_real_flag_cut_loss
         g_real_flag = 0
+        g_real_flag_cut_loss = 0
 
         # while True:
         #     cur_tm = datetime.datetime.now()  # 현재시간 조회
@@ -103,14 +106,14 @@ class startThread(QThread):
         #
         #     time.sleep(1)
 
-        # g_map_tb갱신 요청 이벤트
-        self.get_tb_trd_data_event.emit()
         if set_tb_accnt_flag == 0:
             set_tb_accnt_flag = 1
             self.set_accnt_event.emit()  # 계좌정보 요청 이벤트
         if set_tb_accnt_info_flag == 0:
             self.set_accnt_info_event.emit()  # 계좌정보 조회 요청 이벤트
             set_tb_accnt_info_flag = 1
+        # g_map_tb갱신 요청 이벤트
+        self.get_tb_trd_data_event.emit()
 
         self.req_real_data_event.emit()
 
@@ -127,10 +130,10 @@ class startThread(QThread):
             if cur_tm - close_tm >= datetime.timedelta(seconds=1):  # 15시 30분 이후
                 return
             while True:
-                if g_real_flag == 1:
+                if g_real_flag == 1 and g_real_flag_cut_loss == 1:
                     # 장 운영시간 중이므로 매수나 매도주문
                     self.real_buy_ord_event.emit()  # 실시간 매수주문 이벤트
-                    time.sleep(0.2)
+                    time.sleep(10)
 
 
 # 화면을 띄우는데 사용되는 Class 선언
@@ -771,7 +774,9 @@ class WindowClass(QMainWindow, form_class):
     def axKHOpenAPI1_OnReceiveRealData(self, jongmok_cd, real_type, real_data):
         # print(jongmok_cd, real_type, real_data)
         global g_real_flag
-        for l_jongmok_cd in self.g_accnt_info:
+        global g_real_flag_cut_loss
+        # for l_jongmok_cd in self.g_accnt_info:
+        for l_jongmok_cd in self.g_map_tb.keys():
             if l_jongmok_cd == jongmok_cd and real_type == '주식체결':
                 l_cur_price = self.get_comm_real_date(l_jongmok_cd, '10')  # 현재가
                 l_bid_price = self.get_comm_real_date(l_jongmok_cd, '28')  # 최우선 매수호가
@@ -783,11 +788,13 @@ class WindowClass(QMainWindow, form_class):
                 print(l_jongmok_cd + ' 매수호가 : ' + str(l_bid_price))
 
                 #  매수호가용 dictionary 갱신
-                self.g_map_tb = {l_jongmok_cd: [l_bid_price]}
+                self.g_map_tb[l_jongmok_cd] = [l_bid_price]
+                print(self.g_map_tb)
 
-                if self.g_map.get(l_jongmok_cd)[0] > l_cur_price:
-                    print('손절')
-                    self.real_cut_loss_ord(l_jongmok_cd, l_cur_price)
+                if g_real_flag_cut_loss == 1:
+                    if l_jongmok_cd in self.g_map and self.g_map.get(l_jongmok_cd)[0] > l_cur_price:
+                        print('손절')
+                        self.real_cut_loss_ord(l_jongmok_cd, l_cur_price)
 
                 print(self.g_map)
 
@@ -800,7 +807,6 @@ class WindowClass(QMainWindow, form_class):
             else:
                 g_real_flag = 1
 
-        print(g_real_flag)
 
     # 매수가능금액 요청
     @pyqtSlot()
@@ -1323,7 +1329,6 @@ class WindowClass(QMainWindow, form_class):
         conn.commit()
         cur.close()
         conn.close()
-        print('완료')
 
     # 보유주식수 구하기(이미 보유한 주식이라면 매수주문을 내지 않는다)
     def get_own_stock_cnt(self, i_jongmok_cd):
@@ -1627,6 +1632,7 @@ class WindowClass(QMainWindow, form_class):
 
     # 테이블 데이터 실시간 정보조회 요청
     def req_real_data(self):
+        global g_real_flag_cut_loss
         conn = cx_Oracle.connect('ats', '1234', 'localhost:1521/xe', encoding='UTF-8', nencoding='UTF-8')
         cur = conn.cursor()
         now = QDate.currentDate()
@@ -1657,6 +1663,7 @@ class WindowClass(QMainWindow, form_class):
         q_str = q_str.rstrip(';')
         self.set_real_reg(l_scr_no_g, q_str, '10;28', '1')  # 실시간 데이터 조회 추가요청
         self.g_accnt_info = q_str.split(';')
+        g_real_flag_cut_loss = 1
         print(self.g_accnt_info)
 
         conn.commit()
