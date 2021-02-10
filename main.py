@@ -750,8 +750,8 @@ class WindowClass(QMainWindow, form_class):
                 self.insert_tb_chegyul_lst(ref_dt, jongmok_cd, jongmok_nm, chegyul_gb, chegyul_no, chegyul_price,
                                            chegyul_cnt, chegyul_amt, chegyul_dtm, ord_no, org_ord_no)  # 체결내역 저장
 
-                # 손절주문 목록에 매수항목을 포함
-                self.req_real_data()
+                if chegyul_gb == '2':  # 매수체결이라면면
+                    self.refreash_thread()
 
                 if chegyul_gb == '1':  # 매도체결이라면 계좌 테이블의 매수가능금액을 늘려줌
                     self.update_tb_accnt(chegyul_gb, chegyul_amt)
@@ -1697,6 +1697,21 @@ class WindowClass(QMainWindow, form_class):
         conn.commit()
         cur.close()
         conn.close()
+
+    # 매수체결시 자동매매 재시작
+    def refreash_thread(self):
+        self.write_msg_log('자동매매 재시작')
+        try:
+            self.start_thread.terminate()  # 현재 돌아가는 쓰레드 종료
+            self.start_thread.wait()  # 새롭게 쓰레드를 대기시킴
+            self.kiwoom.dynamicCall('SetRealRemove(QString, QString)', 'ALL', 'ALL')  # 실시간 구독 해지
+        except Exception as ex:
+            self.write_err_log('자동매매 재시작 ex.Message : ' + str(ex))
+
+        self.m_is_thread = 0
+
+        self.pushbutton_5_clicked()
+        print('재시작')
 
 
 if __name__ == "__main__":
